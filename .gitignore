@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Rust build output. The compiled module is committed as src/wasm.ts instead,
+# so neither CI nor a consumer needs a Rust toolchain.
+crates/*/target/
