@@ -5,6 +5,11 @@
 //! and issues the canvas calls itself. Nothing crosses the boundary per
 //! particle, which is what makes this cheaper than calling into WASM to draw.
 //!
+//! The buffer holds what the canvas needs rather than what the simulation
+//! thinks in: a particle's final radius and alpha, already interpolated. The
+//! drawing half reads four numbers and issues an arc, and every sum lives on
+//! this side of the boundary.
+//!
 //! There is deliberately no `wasm-bindgen` here. The whole interface is a
 //! pointer and a handful of numbers, so bindings would add a code generator,
 //! a build step and a JS glue file to express what five `extern "C"` functions
@@ -20,8 +25,9 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-/// `[x, y, vx, vy, bubble]` per particle.
-const STRIDE: usize = 5;
+/// `[x, y, vx, vy, radius, alpha]` per particle. The velocities are the
+/// simulation's own business; the drawing half reads 0, 1, 4 and 5.
+const STRIDE: usize = 6;
 
 /// Ceiling on the buffer. Linear memory is never grown: a `Float32Array` view
 /// over `memory.buffer` silently detaches if it is, and reads zeros from then
@@ -47,7 +53,10 @@ struct State {
     seed: u32,
     configured: f32,
     speed: f32,
-    radius: f32,
+    size: f32,
+    bubble_size: f32,
+    opacity: f32,
+    bubble_opacity: f32,
     bubble_range: f32,
 }
 
@@ -73,7 +82,10 @@ static STATE: Shared = Shared(core::cell::UnsafeCell::new(State {
     seed: 0,
     configured: 0.0,
     speed: 0.0,
-    radius: 0.0,
+    size: 0.0,
+    bubble_size: 0.0,
+    opacity: 0.0,
+    bubble_opacity: 0.0,
     bubble_range: 0.0,
 }));
 
@@ -92,16 +104,43 @@ fn random(s: &mut State) -> f32 {
     (s.seed as f32) / 4_294_967_296.0
 }
 
-/// Set the simulation constants. Called once from JS before `resize`, so the
-/// values live in one place — the component — rather than being duplicated
-/// either side of the boundary.
+/// A fully bubbled particle is twice as solid as one at rest — the pair the
+/// effect was ported from was 0.3 and 0.6. Derived rather than configured
+/// separately, so raising one cannot silently invert the relationship.
+fn bubble_opacity_for(opacity: f32) -> f32 {
+    let doubled = opacity * 2.0;
+
+    if doubled > 1.0 {
+        1.0
+    } else {
+        doubled
+    }
+}
+
+/// Set the constants. Called once from JS before `resize`.
+///
+/// The drawing values — size and opacity, and what they become under the
+/// pointer — live here rather than on the JavaScript side because interpolating
+/// between them is per-particle, per-frame arithmetic. Doing it here means the
+/// drawing half reads a finished radius and alpha instead of recomputing them
+/// for every particle on every frame.
 #[no_mangle]
-pub extern "C" fn configure(configured: f32, speed: f32, radius: f32, bubble_range: f32) {
+pub extern "C" fn configure(
+    configured: f32,
+    speed: f32,
+    size: f32,
+    bubble_size: f32,
+    opacity: f32,
+    bubble_range: f32,
+) {
     let s = state();
 
     s.configured = configured;
     s.speed = speed;
-    s.radius = radius;
+    s.size = size;
+    s.bubble_size = bubble_size;
+    s.opacity = opacity;
+    s.bubble_opacity = bubble_opacity_for(opacity);
     s.bubble_range = bubble_range;
     s.seed = INITIAL_SEED;
 }
@@ -197,7 +236,7 @@ pub extern "C" fn tick(dt: f32, pointer_x: f32, pointer_y: f32) {
     let s = state();
 
     let step = dt / FRAME_MS;
-    let r = s.radius;
+    let r = s.size;
     let w = s.width;
     let h = s.height;
 
@@ -228,8 +267,7 @@ pub extern "C" fn tick(dt: f32, pointer_x: f32, pointer_y: f32) {
         s.data[o + 1] = y;
 
         /* 0 at rest, 1 directly under the pointer, falling off linearly with
-        distance across the bubble radius. JS interpolates size and opacity
-        across it, so the whole interaction is one number per particle.
+        distance across the bubble radius.
 
         Recomputed from the pointer every frame rather than eased toward a
         target over time: the hover bubble tracks the pointer, so it has to
@@ -240,11 +278,17 @@ pub extern "C" fn tick(dt: f32, pointer_x: f32, pointer_y: f32) {
         let dy = y - pointer_y;
         let distance_squared = dx * dx + dy * dy;
 
-        s.data[o + 4] = if distance_squared < range_squared {
+        let bubble = if distance_squared < range_squared {
             1.0 - sqrt(distance_squared) / range
         } else {
             0.0
         };
+
+        /* Interpolated here rather than handed over as a progress value for
+        the drawing half to expand. It is two multiply-adds per particle per
+        frame either way, and this side is the one compiled for it. */
+        s.data[o + 4] = s.size + (s.bubble_size - s.size) * bubble;
+        s.data[o + 5] = s.opacity + (s.bubble_opacity - s.opacity) * bubble;
 
         i += 1;
     }
@@ -286,7 +330,8 @@ pub extern "C" fn resize(width: f32, height: f32) {
         s.data[o + 1] = random(s) * height;
         s.data[o + 2] = cos(angle) * s.speed;
         s.data[o + 3] = sin(angle) * s.speed;
-        s.data[o + 4] = 0.0;
+        s.data[o + 4] = s.size;
+        s.data[o + 5] = s.opacity;
 
         i += 1;
     }
@@ -313,7 +358,7 @@ mod tests {
 
         s.count = 0;
         // configure re-seeds, so this is a full reset.
-        configure(600.0, 0.25, 2.2, 175.0);
+        configure(600.0, 0.25, 2.2, 4.0, 0.3, 175.0);
     }
 
     #[test]
@@ -521,7 +566,18 @@ mod tests {
         s.data[1] = y;
         s.data[2] = 0.0;
         s.data[3] = 0.0;
-        s.data[4] = 0.0;
+        s.data[4] = s.size;
+        s.data[5] = s.opacity;
+    }
+
+    /// How far along the bubble a particle is, recovered from the radius the
+    /// simulation wrote. The progress value itself is no longer stored — the
+    /// buffer carries the finished numbers the canvas needs.
+    fn bubble_of(index: usize) -> f32 {
+        let s = state();
+        let radius = s.data[index * STRIDE + 4];
+
+        (radius - s.size) / (s.bubble_size - s.size)
     }
 
     #[test]
@@ -534,7 +590,10 @@ mod tests {
 
         tick(FRAME_MS, 640.0, 400.0);
 
-        assert!((state().data[4] - 1.0).abs() < 0.001);
+        let s = state();
+
+        assert!((s.data[4] - s.bubble_size).abs() < 0.001);
+        assert!((s.data[5] - s.bubble_opacity).abs() < 0.001);
     }
 
     /// The whole point of the correction: the bubble tracks the pointer, so it
@@ -570,7 +629,7 @@ mod tests {
             one_particle_at(640.0 + offset, 400.0);
             tick(FRAME_MS, 640.0, 400.0);
 
-            let actual = state().data[4];
+            let actual = bubble_of(0);
 
             assert!(
                 (actual - expected).abs() < 0.01,
@@ -590,7 +649,10 @@ mod tests {
         // 176px away, just outside the 175px bubble distance.
         tick(FRAME_MS, 816.0, 400.0);
 
-        assert_eq!(state().data[4], 0.0);
+        let s = state();
+
+        assert_eq!(s.data[4], s.size);
+        assert_eq!(s.data[5], s.opacity);
     }
 
     /// The radius is a circle, not a bounding box: a particle diagonally
@@ -605,7 +667,7 @@ mod tests {
 
         tick(FRAME_MS, 640.0, 400.0);
 
-        assert_eq!(state().data[4], 0.0);
+        assert_eq!(bubble_of(0), 0.0);
     }
 
     /// Drops the moment the pointer goes, for the same reason it lands the
@@ -619,11 +681,84 @@ mod tests {
         one_particle_at(640.0, 400.0);
 
         tick(FRAME_MS, 640.0, 400.0);
-        assert!(state().data[4] > 0.9);
+        assert!(bubble_of(0) > 0.9);
 
         tick(FRAME_MS, -1e9, -1e9);
 
-        assert_eq!(state().data[4], 0.0);
+        let s = state();
+
+        assert_eq!(s.data[4], s.size);
+        assert_eq!(s.data[5], s.opacity);
+    }
+
+    /// The interpolation the drawing half used to do. It lives here now, so it
+    /// is asserted here.
+    #[test]
+    fn writes_a_resting_particle_at_the_configured_size_and_opacity() {
+        let _guard = lock();
+
+        reset();
+        resize(1280.0, 800.0);
+        one_particle_at(640.0, 400.0);
+
+        tick(FRAME_MS, -1e9, -1e9);
+
+        let s = state();
+
+        assert_eq!(s.data[4], 2.2);
+        assert_eq!(s.data[5], 0.3);
+    }
+
+    #[test]
+    fn interpolates_halfway_across_the_bubble() {
+        let _guard = lock();
+
+        reset();
+        resize(1280.0, 800.0);
+        // 87.5px is half of the 175px radius.
+        one_particle_at(640.0 + 87.5, 400.0);
+
+        tick(FRAME_MS, 640.0, 400.0);
+
+        let s = state();
+
+        // Halfway between 2.2 and 4.0, and between 0.3 and 0.6.
+        assert!((s.data[4] - 3.1).abs() < 0.02, "radius was {}", s.data[4]);
+        assert!((s.data[5] - 0.45).abs() < 0.01, "alpha was {}", s.data[5]);
+    }
+
+    /// Twice the resting opacity, as the pair this was ported from had at 0.3
+    /// and 0.6 — derived, so raising one cannot invert the relationship.
+    #[test]
+    fn doubles_the_opacity_for_a_fully_bubbled_particle() {
+        assert!((bubble_opacity_for(0.3) - 0.6).abs() < 0.0001);
+        assert!((bubble_opacity_for(0.4) - 0.8).abs() < 0.0001);
+    }
+
+    #[test]
+    fn never_exceeds_full_opacity() {
+        assert_eq!(bubble_opacity_for(0.7), 1.0);
+        assert_eq!(bubble_opacity_for(1.0), 1.0);
+    }
+
+    /// A resize spawns into a field that is already configured, so the new
+    /// particles have to arrive at rest rather than at zero — otherwise they
+    /// are invisible until the first tick reaches them.
+    #[test]
+    fn spawns_particles_ready_to_draw() {
+        let _guard = lock();
+
+        reset();
+        resize(1280.0, 800.0);
+
+        let s = state();
+
+        for i in 0..s.count {
+            let o = i * STRIDE;
+
+            assert_eq!(s.data[o + 4], 2.2);
+            assert_eq!(s.data[o + 5], 0.3);
+        }
     }
 
     #[test]

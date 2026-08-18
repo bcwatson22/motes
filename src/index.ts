@@ -25,10 +25,7 @@ const options = {
    grey — brand blue loses about four fifths of its saturation that way. */
 const defaultOpacity = 0.3;
 
-/* A fully bubbled particle in the original config was twice the resting
-   opacity — 0.3 and 0.6. Derived rather than configured separately, so
-   raising one cannot silently invert the relationship. */
-const bubbleOpacityFor = (opacity: number): number => Math.min(1, opacity * 2);
+const TAU = Math.PI * 2;
 
 /* Far enough away that no particle is ever within the bubble radius of it. */
 const noPointer = -1e9;
@@ -42,7 +39,9 @@ type Exports = {
   configure: (
     count: number,
     speed: number,
-    radius: number,
+    size: number,
+    bubbleSize: number,
+    opacity: number,
     bubbleRange: number,
   ) => void;
   resize: (width: number, height: number) => void;
@@ -106,7 +105,6 @@ const createField = async (
   const wasm = await instantiate();
   const context = canvas.getContext('2d');
   const resolved = resolveColor(color, canvas);
-  const bubbleOpacity = bubbleOpacityFor(opacity);
 
   if (!context) {
     /* No 2D context is not an error worth surfacing: the field is decoration,
@@ -118,6 +116,8 @@ const createField = async (
     options.count,
     options.speed,
     options.size,
+    options.bubbleSize,
+    opacity,
     options.bubbleDistance,
   );
 
@@ -158,20 +158,16 @@ const createField = async (
     context.clearRect(0, 0, width, height);
     context.fillStyle = resolved;
 
+    /* Four reads and an arc. The radius and alpha arrive interpolated — the
+       simulation writes what the canvas needs rather than a progress value for
+       this loop to expand, so nothing is recomputed per particle here. */
     for (let i = 0; i < count; i++) {
       const offset = i * stride;
-      const bubble = view[offset + 4];
 
-      context.globalAlpha = opacity + (bubbleOpacity - opacity) * bubble;
+      context.globalAlpha = view[offset + 5];
 
       context.beginPath();
-      context.arc(
-        view[offset],
-        view[offset + 1],
-        options.size + (options.bubbleSize - options.size) * bubble,
-        0,
-        Math.PI * 2,
-      );
+      context.arc(view[offset], view[offset + 1], view[offset + 4], 0, TAU);
       context.fill();
     }
 
@@ -216,5 +212,5 @@ const createField = async (
   };
 };
 
-export { bubbleOpacityFor, createField, defaultOpacity, options };
+export { createField, defaultOpacity, options };
 export type { Field, Options };

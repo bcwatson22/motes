@@ -1,31 +1,33 @@
 import type { Mock } from 'vitest';
 
-import {
-  bubbleOpacityFor,
-  createField,
-  defaultOpacity,
-  options,
-} from './index';
+import { createField, defaultOpacity, options } from './index';
 
 /* A stand-in for the compiled module. The simulation itself is tested in Rust
    with cargo; what matters here is that this half drives it correctly and
    draws what it reports. */
-const stride = 5;
+const stride = 6;
 
 type WasmOptions = {
   count?: number;
-  /* Bubble progress per particle, 0 at rest and 1 fully bubbled. */
-  bubbles?: number[];
+  /* The simulation writes finished values, so these are what it would have
+     interpolated rather than a progress value this side expands. */
+  radii?: number[];
+  alphas?: number[];
 };
 
-const createWasm = ({ count = 2, bubbles = [] }: WasmOptions = {}) => {
+const createWasm = ({
+  count = 2,
+  radii = [],
+  alphas = [],
+}: WasmOptions = {}) => {
   const buffer = new ArrayBuffer(count * stride * 4);
   const view = new Float32Array(buffer);
 
   for (let i = 0; i < count; i++) {
     view[i * stride] = 10 + i;
     view[i * stride + 1] = 20 + i;
-    view[i * stride + 4] = bubbles[i] ?? 0;
+    view[i * stride + 4] = radii[i] ?? options.size;
+    view[i * stride + 5] = alphas[i] ?? defaultOpacity;
   }
 
   return {
@@ -140,8 +142,16 @@ describe('createField', () => {
       options.count,
       options.speed,
       options.size,
+      options.bubbleSize,
+      defaultOpacity,
       options.bubbleDistance,
     );
+  });
+
+  it('hands the simulation the opacity it was given', async () => {
+    const { wasm } = await setup({ opacity: 0.55 });
+
+    expect((wasm.configure as Mock).mock.calls[0][4]).toBe(0.55);
   });
 
   it('sizes the simulation in CSS pixels', async () => {
@@ -240,8 +250,16 @@ describe('createField', () => {
       expect(context.fillStyle).toBe('#245385');
     });
 
-    it('draws each particle where the simulation put it', async () => {
-      const { context } = await setup({ wasm: createWasm({ count: 1 }) });
+    /* The point of the split: the radius arrives interpolated, so this loop
+       reads it rather than recomputing it.
+
+       3.5 rather than a value like 3.1 because the buffer is Float32Array and
+       3.1 reads back as 3.0999999046325684 — exactly representable values keep
+       the assertion about the behaviour rather than about float precision. */
+    it('draws each particle where and how the simulation says', async () => {
+      const { context } = await setup({
+        wasm: createWasm({ count: 1, radii: [3.5] }),
+      });
 
       advance(performance.now() + 16);
 
@@ -249,33 +267,9 @@ describe('createField', () => {
         1,
         10,
         20,
-        options.size,
+        3.5,
         0,
         Math.PI * 2,
-      );
-    });
-
-    /* The bubble is one number per particle; size and opacity are interpolated
-       across it here rather than in the simulation. */
-    it('grows a fully bubbled particle to the bubble size', async () => {
-      const { context } = await setup({
-        wasm: createWasm({ count: 1, bubbles: [1] }),
-      });
-
-      advance(performance.now() + 16);
-
-      expect((context.arc as Mock).mock.calls[0][2]).toBe(options.bubbleSize);
-    });
-
-    it('interpolates size across a partial bubble', async () => {
-      const { context } = await setup({
-        wasm: createWasm({ count: 1, bubbles: [0.5] }),
-      });
-
-      advance(performance.now() + 16);
-
-      expect((context.arc as Mock).mock.calls[0][2]).toBeCloseTo(
-        options.size + (options.bubbleSize - options.size) * 0.5,
       );
     });
 
@@ -288,55 +282,34 @@ describe('createField', () => {
     });
   });
 
-  describe('opacity', () => {
-    it('rests at the default when none is given', async () => {
-      const { context } = await setup({ wasm: createWasm({ count: 1 }) });
+  /* How opacity is arrived at is the simulation's business and is asserted in
+     the crate. What matters here is that whatever it wrote reaches the canvas
+     unaltered, and that the alpha is reset afterwards so the next thing drawn
+     on this context is not silently transparent. */
+  describe('alpha', () => {
+    it('draws each particle at the alpha the simulation wrote', async () => {
+      const alphas: number[] = [];
+      const { context } = await setup({
+        wasm: createWasm({ count: 2, alphas: [0.5, 0.75] }),
+      });
+
+      (context.fill as Mock).mockImplementation(() => {
+        alphas.push(context.globalAlpha);
+      });
+
+      advance(performance.now() + 16);
+
+      expect(alphas).toEqual([0.5, 0.75]);
+    });
+
+    it('restores full alpha when the frame is done', async () => {
+      const { context } = await setup({
+        wasm: createWasm({ count: 1, alphas: [0.5] }),
+      });
 
       advance(performance.now() + 16);
 
       expect(context.globalAlpha).toBe(1);
-      expect((context.arc as Mock).mock.calls).toHaveLength(1);
-    });
-
-    /* A dark colour at 0.3 over a near-white page composites to something
-       close to grey, so a light page needs more of it. */
-    it('rests at the opacity it is given', async () => {
-      const alphas: number[] = [];
-      const { context } = await setup({
-        wasm: createWasm({ count: 1 }),
-        opacity: 0.55,
-      });
-
-      (context.fill as Mock).mockImplementation(() => {
-        alphas.push(context.globalAlpha);
-      });
-
-      advance(performance.now() + 16);
-
-      expect(alphas).toEqual([0.55]);
-    });
-
-    /* Twice the resting opacity, as the original config had at 0.3 and 0.6 —
-       derived, so raising one cannot invert the relationship. */
-    it('doubles the opacity for a fully bubbled particle', async () => {
-      const alphas: number[] = [];
-      const { context } = await setup({
-        wasm: createWasm({ count: 1, bubbles: [1] }),
-        opacity: 0.4,
-      });
-
-      (context.fill as Mock).mockImplementation(() => {
-        alphas.push(context.globalAlpha);
-      });
-
-      advance(performance.now() + 16);
-
-      expect(alphas).toEqual([0.8]);
-    });
-
-    it('never exceeds full opacity', () => {
-      expect(bubbleOpacityFor(0.7)).toBe(1);
-      expect(bubbleOpacityFor(defaultOpacity)).toBeCloseTo(0.6);
     });
   });
 
