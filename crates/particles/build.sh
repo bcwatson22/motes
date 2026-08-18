@@ -23,7 +23,10 @@ out=../../src/wasm.ts
   printf '   The compiled simulation, inlined so the package ships as one file.\n'
   printf '   Rebuild with `pnpm wasm` after changing the crate. */\n'
   printf '\n'
-  printf 'const wasm =\n'
+  # Annotated `: string` rather than left to inference. Without it TypeScript
+  # types the constant as the base64 literal, and ships the whole payload again
+  # inside the .d.ts.
+  printf 'const wasm: string =\n'
   printf "  '%s';\n" "$(base64 < "$wasm" | tr -d '\n')"
   printf '\n'
   printf 'export { wasm };\n'

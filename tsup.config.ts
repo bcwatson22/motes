@@ -6,7 +6,11 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm'],
-  dts: true,
+  /* Declarations come from tsc, not from here: tsup generates them with
+     rollup-plugin-dts, which does not support TypeScript 7's compiler API.
+     `tsc -p tsconfig.build.json` emits the same thing and keeps the package on
+     the same TypeScript the rest of the work uses. */
+  dts: false,
   clean: true,
   treeshake: true,
   target: 'es2022',

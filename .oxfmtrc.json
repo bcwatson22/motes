@@ -3,9 +3,5 @@
   "printWidth": 80,
   "singleQuote": true,
   "sortImports": true,
-  "ignorePatterns": [
-    "dist/**",
-    "coverage/**",
-    "src/wasm.ts"
-  ]
+  "ignorePatterns": ["dist/**", "coverage/**", "src/wasm.ts"]
 }

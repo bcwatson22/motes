@@ -1,13 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "eslint",
-    "typescript",
-    "oxc",
-    "unicorn",
-    "import",
-    "vitest"
-  ],
+  "plugins": ["eslint", "typescript", "oxc", "unicorn", "import", "vitest"],
   "categories": {
     "correctness": "error"
   },
@@ -16,16 +9,10 @@
     "builtin": true,
     "browser": true
   },
-  "ignorePatterns": [
-    "dist/**",
-    "coverage/**",
-    "src/wasm.ts"
-  ],
+  "ignorePatterns": ["dist/**", "coverage/**", "src/wasm.ts"],
   "overrides": [
     {
-      "files": [
-        "**/*.test.ts"
-      ],
+      "files": ["**/*.test.ts"],
       "rules": {
         "typescript/unbound-method": "off"
       }
