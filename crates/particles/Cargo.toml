@@ -1,0 +1,18 @@
+[package]
+name = "particles"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# `rlib` alongside `cdylib` so `cargo test` can link the crate on the host.
+# The wasm build only ever uses the cdylib.
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = true
