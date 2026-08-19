@@ -1,6 +1,6 @@
 import type { Mock } from 'vitest';
 
-import { createField, defaultOpacity, options } from './index';
+import { createField, defaults } from './index';
 
 /* A stand-in for the compiled module. The simulation itself is tested in Rust
    with cargo; what matters here is that this half drives it correctly and
@@ -26,8 +26,8 @@ const createWasm = ({
   for (let i = 0; i < count; i++) {
     view[i * stride] = 10 + i;
     view[i * stride + 1] = 20 + i;
-    view[i * stride + 4] = radii[i] ?? options.size;
-    view[i * stride + 5] = alphas[i] ?? defaultOpacity;
+    view[i * stride + 4] = radii[i] ?? defaults.size;
+    view[i * stride + 5] = alphas[i] ?? defaults.opacity;
   }
 
   return {
@@ -123,6 +123,11 @@ const setup = async ({
 
   const canvas = document.createElement('canvas');
 
+  /* Attached, because jsdom resolves computed styles differently for an
+     element outside the document — and the colour is read back off the
+     element. */
+  document.body.append(canvas);
+
   Object.defineProperty(canvas, 'clientWidth', { value: clientWidth });
   Object.defineProperty(canvas, 'clientHeight', { value: clientHeight });
   vi.spyOn(canvas, 'getContext').mockReturnValue(
@@ -184,12 +189,12 @@ describe('createField', () => {
 
     expect(wasm.configure).toHaveBeenNthCalledWith(
       1,
-      options.count,
-      options.speed,
-      options.size,
-      options.bubbleSize,
-      defaultOpacity,
-      options.bubbleDistance,
+      defaults.count,
+      defaults.speed,
+      defaults.size,
+      defaults.bubbleSize,
+      defaults.opacity,
+      defaults.bubbleDistance,
     );
   });
 
@@ -481,6 +486,113 @@ describe('createField', () => {
       window.dispatchEvent(new Event('resize'));
 
       expect(wasm.resize).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  /* The point of update over destroy-and-recreate: a control that restarts the
+     field on every input event restarts the animation on every pixel of drag. */
+  describe('update', () => {
+    it('reconfigures the simulation without restarting the loop', async () => {
+      const { field, wasm } = await setup();
+
+      field.update({ speed: 1.5 });
+
+      expect((wasm.configure as Mock).mock.calls[1][1]).toBe(1.5);
+      expect(cancelAnimationFrame).toHaveBeenCalledTimes(0);
+    });
+
+    it('keeps settings it was not asked to change', async () => {
+      const { field, wasm } = await setup();
+
+      field.update({ speed: 1.5 });
+
+      const [count, , size] = (wasm.configure as Mock).mock.calls[1];
+
+      expect(count).toBe(defaults.count);
+      expect(size).toBe(defaults.size);
+    });
+
+    /* A caller spreading optional props — `{ opacity }` where opacity is
+       undefined — means "leave it alone", not "clear it". */
+    it('ignores values given as undefined', async () => {
+      const { field, wasm } = await setup();
+
+      field.update({ opacity: undefined, speed: 1.5 });
+
+      const [, speed, , , opacity] = (wasm.configure as Mock).mock.calls[1];
+
+      expect(speed).toBe(1.5);
+      expect(opacity).toBe(defaults.opacity);
+    });
+
+    /* Count decides how many particles exist, so it is the one setting that
+       cannot be picked up on the next tick. */
+    it('respawns when the count changes', async () => {
+      const { field, wasm } = await setup();
+
+      field.update({ count: 200 });
+
+      expect(wasm.resize).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not respawn for anything else', async () => {
+      const { field, wasm } = await setup();
+
+      field.update({ speed: 1.5, size: 3, opacity: 0.8 });
+
+      expect(wasm.resize).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves a new colour', async () => {
+      const { field, context } = await setup();
+
+      field.update({ color: '#f9fafb' });
+      advance(performance.now() + 16);
+
+      expect(context.fillStyle).toBe('rgb(249, 250, 251)');
+    });
+
+    /* Otherwise a change made while the field is halted would not appear
+       until something else forced a frame. */
+    it('redraws immediately when the loop is not running', async () => {
+      const { field, context } = await setup({
+        prefersReducedMotion: true,
+        wasm: createWasm({ count: 2 }),
+      });
+
+      expect(context.arc).toHaveBeenCalledTimes(2);
+
+      field.update({ size: 3 });
+
+      expect(context.arc).toHaveBeenCalledTimes(4);
+    });
+
+    it('leaves the running loop to draw its own next frame', async () => {
+      const { field, context } = await setup({
+        wasm: createWasm({ count: 2 }),
+      });
+
+      field.update({ size: 3 });
+
+      expect(context.arc).toHaveBeenCalledTimes(0);
+    });
+
+    /* respectReducedMotion is settled when the field is created; changing it
+       later would mean re-subscribing, which is not worth the surface area. */
+    it('ignores respectReducedMotion', async () => {
+      const { field } = await setup({ prefersReducedMotion: true });
+
+      field.update({ respectReducedMotion: false });
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(0);
+    });
+
+    describe('where there is no 2D context', () => {
+      it('is safe to call', async () => {
+        const { field } = await setup({ hasContext: false });
+
+        expect(() => field.update({ speed: 1 })).not.toThrow();
+      });
     });
   });
 

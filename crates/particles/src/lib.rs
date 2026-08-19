@@ -142,7 +142,13 @@ pub extern "C" fn configure(
     s.opacity = opacity;
     s.bubble_opacity = bubble_opacity_for(opacity);
     s.bubble_range = bubble_range;
-    s.seed = INITIAL_SEED;
+
+    /* Seeded once, on the first call. configure is how settings change while
+    a field is running, and re-seeding there would make every later spawn
+    repeat the same positions the first ones took. */
+    if s.seed == 0 {
+        s.seed = INITIAL_SEED;
+    }
 }
 
 /// How many particles a canvas of this size gets.
@@ -248,8 +254,9 @@ pub extern "C" fn tick(dt: f32, pointer_x: f32, pointer_y: f32) {
     while i < s.count {
         let o = i * STRIDE;
 
-        let mut x = s.data[o] + s.data[o + 2] * step;
-        let mut y = s.data[o + 1] + s.data[o + 3] * step;
+        let travel = s.speed * step;
+        let mut x = s.data[o] + s.data[o + 2] * travel;
+        let mut y = s.data[o + 1] + s.data[o + 3] * travel;
 
         if x < -r {
             x = w + r;
@@ -328,8 +335,11 @@ pub extern "C" fn resize(width: f32, height: f32) {
 
         s.data[o] = random(s) * width;
         s.data[o + 1] = random(s) * height;
-        s.data[o + 2] = cos(angle) * s.speed;
-        s.data[o + 3] = sin(angle) * s.speed;
+        /* A unit bearing, with speed applied in `tick` rather than baked in
+        here. Baking it means a later change to speed moves only the
+        particles spawned after it, which looks like a bug. */
+        s.data[o + 2] = cos(angle);
+        s.data[o + 3] = sin(angle);
         s.data[o + 4] = s.size;
         s.data[o + 5] = s.opacity;
 
@@ -357,6 +367,9 @@ mod tests {
         let s = state();
 
         s.count = 0;
+        /* configure only seeds when this is zero, so a full reset clears it
+        first. */
+        s.seed = 0;
         // configure re-seeds, so this is a full reset.
         configure(600.0, 0.25, 2.2, 4.0, 0.3, 175.0);
     }
@@ -435,11 +448,11 @@ mod tests {
         }
     }
 
-    /// Spawn bearings are uniform, so the velocity vector always has magnitude
-    /// `speed` whatever the angle — a sloppier approximation would make some
-    /// particles measurably faster than others.
+    /// Bearings are unit vectors, so every particle travels at exactly the
+    /// configured speed whatever its direction. A sloppier trig approximation
+    /// would make some measurably faster than others.
     #[test]
-    fn gives_every_particle_the_same_speed() {
+    fn gives_every_particle_the_same_bearing_magnitude() {
         let _guard = lock();
 
         reset();
@@ -451,8 +464,55 @@ mod tests {
             let o = i * STRIDE;
             let magnitude = (s.data[o + 2].powi(2) + s.data[o + 3].powi(2)).sqrt();
 
-            assert!((magnitude - 0.25).abs() < 0.002, "speed was {magnitude}");
+            assert!((magnitude - 1.0).abs() < 0.008, "bearing was {magnitude}");
         }
+    }
+
+    /// The reason the bearing is stored rather than the velocity: a change to
+    /// speed has to move the particles already on screen, not just the next
+    /// ones to spawn.
+    #[test]
+    fn applies_a_speed_change_to_existing_particles() {
+        let _guard = lock();
+
+        reset();
+        resize(1280.0, 800.0);
+        one_particle_at(640.0, 400.0);
+
+        let s = state();
+        s.data[2] = 1.0;
+        s.data[3] = 0.0;
+
+        tick(FRAME_MS, -1e9, -1e9);
+        let slow = state().data[0] - 640.0;
+
+        // Same particle, four times the speed, no respawn.
+        configure(600.0, 1.0, 2.2, 4.0, 0.3, 175.0);
+
+        let s = state();
+        s.data[0] = 640.0;
+
+        tick(FRAME_MS, -1e9, -1e9);
+        let fast = state().data[0] - 640.0;
+
+        assert!((slow - 0.25).abs() < 0.01, "moved {slow}px at speed 0.25");
+        assert!((fast - 1.0).abs() < 0.01, "moved {fast}px at speed 1.0");
+    }
+
+    /// configure is how a running field changes settings, so calling it twice
+    /// must not restart the sequence the spawner draws from.
+    #[test]
+    fn keeps_its_place_in_the_sequence_across_a_reconfigure() {
+        let _guard = lock();
+
+        reset();
+        resize(1280.0, 800.0);
+
+        let seed_before = state().seed;
+
+        configure(600.0, 0.5, 2.2, 4.0, 0.3, 175.0);
+
+        assert_eq!(state().seed, seed_before);
     }
 
     #[test]

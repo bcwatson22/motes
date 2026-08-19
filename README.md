@@ -34,6 +34,28 @@ field.destroy();
     </td>
   </tr>
   <tr>
+    <td width="120"><code>count</code></td>
+    <td>
+      Defaults to <code>600</code>. Scaled by canvas area against a 1920&times;1080 reference, so it is not the number that appears on screen — see below.
+    </td>
+  </tr>
+  <tr>
+    <td width="120"><code>speed</code></td>
+    <td>Defaults to <code>0.25</code>. Pixels per frame at 60fps, scaled by the real frame time.</td>
+  </tr>
+  <tr>
+    <td width="120"><code>size</code></td>
+    <td>Defaults to <code>2.2</code>. A particle's radius at rest.</td>
+  </tr>
+  <tr>
+    <td width="120"><code>bubbleSize</code></td>
+    <td>Defaults to <code>4</code>. What it grows to directly under the pointer.</td>
+  </tr>
+  <tr>
+    <td width="120"><code>bubbleDistance</code></td>
+    <td>Defaults to <code>175</code>. How far the pointer's influence reaches, in CSS pixels.</td>
+  </tr>
+  <tr>
     <td width="120"><code>respectReducedMotion</code></td>
     <td>
       Defaults to <code>true</code>. Set it false only if the animation is genuinely essential rather than decorative — see <a href="#accessibility">Accessibility</a>.
@@ -41,7 +63,28 @@ field.destroy();
   </tr>
 </table>
 
-`createField` resolves to `{ destroy }`. Call it on unmount: it cancels the animation frame and removes the window listeners. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
+### Changing settings while it runs
+
+`createField` resolves to `{ update, destroy }`.
+
+```js
+field.update({ speed: 1.5, color: 'var(--brand-blue)' });
+```
+
+`update` merges into the current settings, so anything you leave out stays as
+it was, and a value passed as `undefined` is ignored rather than blanking a
+default — which is what a caller spreading optional props usually means.
+
+Everything but `count` applies on the very next frame with **no respawn**,
+because the simulation reads these values every tick rather than baking them
+into each particle. `count` is the exception: it decides how many particles
+exist, so changing it spawns the shortfall or drops the surplus.
+
+That makes `update` the right tool for a control someone drags. Destroying and
+recreating the field on every input event restarts the animation on every pixel
+of the drag; this does not.
+
+`destroy` cancels the animation frame and removes the window listeners. Call it on unmount. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
 
 ## Usage with React
 
