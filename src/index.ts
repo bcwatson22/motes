@@ -231,9 +231,19 @@ const createField = async (
     context.globalAlpha = 1;
   };
 
+  /* Converted from viewport coordinates to canvas-local ones. The simulation
+     works in the canvas's own space — particles live in 0..width — so a raw
+     clientX is wrong by however far the canvas sits from the viewport's top
+     left. A full-screen canvas has an offset of zero, which is why this went
+     unnoticed until the field was put in a box.
+
+     The rect is read per event rather than cached because scrolling moves it,
+     and pointermove is coalesced to about one event per frame anyway. */
   const onPointerMove = (event: PointerEvent): void => {
-    pointerX = event.clientX;
-    pointerY = event.clientY;
+    const bounds = canvas.getBoundingClientRect();
+
+    pointerX = event.clientX - bounds.left;
+    pointerY = event.clientY - bounds.top;
   };
 
   const onPointerLeave = (): void => {

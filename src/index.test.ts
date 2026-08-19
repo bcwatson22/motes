@@ -461,6 +461,27 @@ describe('createField', () => {
       expect((wasm.tick as Mock).mock.calls[0].slice(1)).toEqual([400, 300]);
     });
 
+    /* The simulation works in the canvas's own space, so a pointer position
+       has to be converted into it. A full-screen canvas sits at the viewport
+       origin and needs no conversion, which is how this went unnoticed — put
+       the same field in a box and the bubble trails the cursor by however far
+       the box is inset. */
+    it('converts the position into the canvas own space', async () => {
+      const { wasm, canvas } = await setup();
+
+      vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+        left: 120,
+        top: 80,
+      } as DOMRect);
+
+      window.dispatchEvent(
+        new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
+      );
+      advance(performance.now() + 16);
+
+      expect((wasm.tick as Mock).mock.calls[0].slice(1)).toEqual([280, 220]);
+    });
+
     /* Parked far enough away that nothing is ever within the bubble radius,
        rather than tracked to an edge where it would still pull particles. */
     it('forgets it when it leaves the window', async () => {
