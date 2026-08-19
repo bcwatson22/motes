@@ -43,6 +43,141 @@ field.destroy();
 
 `createField` resolves to `{ destroy }`. Call it on unmount: it cancels the animation frame and removes the window listeners. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
 
+## Usage with React
+
+The package ships no React binding, and deliberately: the whole interface is one
+function that takes a canvas, and wrapping it costs about forty lines. Those
+forty lines are below rather than in the dependency tree, because a React entry
+point would double the surface area and the release burden of a package this
+size.
+
+This is what the site it was built for actually runs.
+
+```tsx
+'use client';
+
+import { createField, type Field } from '@bcwatson22/motes';
+import { useEffect, useRef } from 'react';
+
+const ParticlesCanvas = ({ color = '#ffffff' }: { color?: string }) => {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+
+    let field: Field | undefined;
+    let cancelled = false;
+
+    createField(ref.current, { color })
+      .then((created) => {
+        /* Unmounted while the module was still instantiating. Without this the
+           field runs on with nothing holding a reference to stop it. */
+        if (cancelled) {
+          created.destroy();
+
+          return;
+        }
+
+        field = created;
+      })
+      /* Not worth an error boundary: the page is correct without a decorative
+         background. */
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      field?.destroy();
+    };
+  }, [color]);
+
+  /* Decoration, so there is nothing here to announce. */
+  return <canvas ref={ref} aria-hidden="true" />;
+};
+
+export { ParticlesCanvas };
+```
+
+The `cancelled` flag is the part worth copying. `createField` is async, so a
+component that mounts and unmounts quickly — a route change, a Suspense
+boundary resolving — can finish instantiating after the cleanup has already
+run. Without the flag that field animates forever, unreachable.
+
+The canvas needs dimensions from CSS. `position: fixed; inset: 0` for a
+full-page background, or any sized box for a contained one; the field reads
+`clientWidth` and `clientHeight` and scales its backing store to match.
+
+### Deferring it
+
+A decorative background should not compete with the page for the main thread
+while that page is still painting. The site gates the canvas behind
+`requestIdleCallback`, so both the work and the module land after the page is
+interactive:
+
+```tsx
+'use client';
+
+import dynamic from 'next/dynamic';
+import { useEffect, useState } from 'react';
+
+const ParticlesCanvas = dynamic(() => import('./ParticlesCanvas'), {
+  ssr: false,
+});
+
+const Particles = () => {
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    /* Safari only shipped requestIdleCallback in 18.4, hence the fallback. The
+       timeout is the backstop for a browser that never goes idle. */
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(() => setIsReady(true), {
+        timeout: 2000,
+      });
+
+      return () => window.cancelIdleCallback(handle);
+    }
+
+    const handle = window.setTimeout(() => setIsReady(true), 200);
+
+    return () => window.clearTimeout(handle);
+  }, []);
+
+  return isReady ? <ParticlesCanvas /> : null;
+};
+
+export { Particles };
+```
+
+### Following the colour scheme
+
+`color` is read once per field, so changing it means recreating one — which
+`useEffect` already does if you put it in the dependencies. Subscribe to the
+media query rather than reading it once, or the field will keep whichever scheme
+was in force at mount:
+
+```tsx
+const query = '(prefers-color-scheme: dark)';
+
+const subscribe = (onChange: () => void) => {
+  const list = window.matchMedia(query);
+
+  list.addEventListener('change', onChange);
+
+  return () => list.removeEventListener('change', onChange);
+};
+
+const isDark = useSyncExternalStore(
+  subscribe,
+  () => window.matchMedia(query).matches,
+  /* Server snapshot. Never reaches the screen — the canvas is painted after
+     mount — so it only has to be stable. */
+  () => true,
+);
+```
+
+Reduced motion needs no equivalent: the package honours it itself, and keeps
+following it while the page is open. See [Accessibility](#accessibility).
+
 ## Stack
 
 ### Rust
