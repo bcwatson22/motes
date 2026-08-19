@@ -3,12 +3,12 @@
 [![CI](https://github.com/bcwatson22/motes/actions/workflows/ci.yml/badge.svg)](https://github.com/bcwatson22/motes/actions/workflows/ci.yml)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)
 
-A drifting particle field for a canvas, in about 4KB. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
+A drifting particle field for a canvas, in 4.3KB gzipped. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
 
-To use it, run `npm i motes` — there is no asset to host and no path to configure, because the compiled module is inlined into the package.
+To use it, run `npm i @bcwatson22/motes` — there is no asset to host and no path to configure, because the compiled module is inlined into the package.
 
 ```js
-import { createField } from 'motes';
+import { createField } from '@bcwatson22/motes';
 
 const field = await createField(document.querySelector('canvas'), {
   color: '#ffffff',
@@ -31,6 +31,12 @@ field.destroy();
     <td width="120"><code>opacity</code></td>
     <td>
       Defaults to <code>0.3</code>. How solid a particle is at rest. Worth raising on a light background — see below.
+    </td>
+  </tr>
+  <tr>
+    <td width="120"><code>respectReducedMotion</code></td>
+    <td>
+      Defaults to <code>true</code>. Set it false only if the animation is genuinely essential rather than decorative — see <a href="#accessibility">Accessibility</a>.
     </td>
   </tr>
 </table>
@@ -108,13 +114,57 @@ The simulation is not why this is small. Benchmarked against the same loop in ha
 
 That is a real speedup on **0.005% of a 60fps frame budget**. The bottleneck is the few hundred `arc()` calls, and those are identical either way. If you are weighing this against a couple of hundred lines of your own JavaScript, choose it for the size and for not writing it — not for the arithmetic.
 
-The module is inlined as base64, which costs about 680 bytes gzipped over fetching it separately. That trade is right at 4KB and would be indefensible at 200KB.
+The module is inlined as base64, which costs about 680 bytes gzipped over fetching it separately. That trade is right at this size and would be indefensible at 200KB.
+
+For the avoidance of the usual ambiguity about what a size claim covers:
+
+<table>
+  <tr>
+    <td width="260">The WebAssembly module</td>
+    <td>4,026 bytes</td>
+  </tr>
+  <tr>
+    <td width="260">What you install, minified</td>
+    <td>9,171 bytes</td>
+  </tr>
+  <tr>
+    <td width="260"><strong>What you ship, gzipped</strong></td>
+    <td><strong>4,323 bytes</strong></td>
+  </tr>
+</table>
+
+The headline number is the last one, because it is the one that reaches a
+browser. Inlined base64 does not compress as well as the raw module it encodes,
+which is why the middle row is more than double the first.
 
 ## Two things that will surprise you
 
 **The particle count is not the number you pass.** It is scaled by canvas area against a 1920×1080 reference, so a 1280×800 canvas gets about half of it. This matches the convention the effect was ported from, and means a field looks about as dense on a phone as on a desktop rather than becoming soup.
 
 **A dark colour at the default opacity looks grey.** Brand blue at `0.3` over a near-white page composites to 14% saturation, against the colour's own 73%. On a light background raise `opacity` to somewhere near `0.55`; the bubble follows, being derived as twice the resting value.
+
+## Accessibility
+
+**The field honours `prefers-reduced-motion` by default.** Where someone has
+asked their system for less motion, it draws a single frame and never starts the
+animation loop — the particles are there, they are simply still. The guidance is
+to remove the motion rather than the content, and an empty canvas is a missing
+feature rather than a considerate one.
+
+It subscribes rather than reading the preference once, so changing the setting
+with the page open stops or starts the field without a reload.
+
+Pass `respectReducedMotion: false` to opt out. There are cases where an
+animation carries meaning and removing it removes information — but a drifting
+background is not one of them, so the default is on and the escape hatch is
+explicit.
+
+The canvas itself carries no information, so give it `aria-hidden="true"` and
+keep it out of the accessibility tree:
+
+```html
+<canvas aria-hidden="true"></canvas>
+```
 
 ## Content Security Policy
 

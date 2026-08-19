@@ -1,7 +1,7 @@
 {
-  "name": "motes",
+  "name": "@bcwatson22/motes",
   "version": "0.1.0",
-  "description": "A 4KB WebAssembly particle field. Simulation in Rust, drawing in JS, no wasm-bindgen.",
+  "description": "A particle field for a canvas in 4.3KB gzipped. Simulation in Rust, drawing in JS, no wasm-bindgen.",
   "keywords": [
     "animation",
     "background",
@@ -31,6 +31,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsup && pnpm build:types",
