@@ -3,7 +3,7 @@
 [![CI](https://github.com/bcwatson22/motes/actions/workflows/ci.yml/badge.svg)](https://github.com/bcwatson22/motes/actions/workflows/ci.yml)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)
 
-A drifting particle field for a canvas, in about 4KB. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
+A drifting particle field for a canvas, in 4.3KB gzipped. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
 
 To use it, run `npm i @bcwatson22/motes` — there is no asset to host and no path to configure, because the compiled module is inlined into the package.
 
@@ -114,7 +114,28 @@ The simulation is not why this is small. Benchmarked against the same loop in ha
 
 That is a real speedup on **0.005% of a 60fps frame budget**. The bottleneck is the few hundred `arc()` calls, and those are identical either way. If you are weighing this against a couple of hundred lines of your own JavaScript, choose it for the size and for not writing it — not for the arithmetic.
 
-The module is inlined as base64, which costs about 680 bytes gzipped over fetching it separately. That trade is right at 4KB and would be indefensible at 200KB.
+The module is inlined as base64, which costs about 680 bytes gzipped over fetching it separately. That trade is right at this size and would be indefensible at 200KB.
+
+For the avoidance of the usual ambiguity about what a size claim covers:
+
+<table>
+  <tr>
+    <td width="260">The WebAssembly module</td>
+    <td>4,026 bytes</td>
+  </tr>
+  <tr>
+    <td width="260">What you install, minified</td>
+    <td>9,171 bytes</td>
+  </tr>
+  <tr>
+    <td width="260"><strong>What you ship, gzipped</strong></td>
+    <td><strong>4,323 bytes</strong></td>
+  </tr>
+</table>
+
+The headline number is the last one, because it is the one that reaches a
+browser. Inlined base64 does not compress as well as the raw module it encodes,
+which is why the middle row is more than double the first.
 
 ## Two things that will surprise you
 
