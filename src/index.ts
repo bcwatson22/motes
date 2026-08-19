@@ -11,19 +11,17 @@ import { wasm } from './wasm';
    to change sit next to the drawing code that uses most of them. tsparticles
    scaled `count` by canvas area against a 1920x1080 reference, so this is the
    configured number rather than the rendered one — the module does that sum. */
-const options = {
+/* The defaults, which are the settings the effect was originally ported from.
+   Every one is overridable — a library that hardcodes its own particle count
+   is not really a library. */
+const defaults = {
+  opacity: 0.3,
   count: 600,
   speed: 0.25,
   size: 2.2,
-  bubbleDistance: 175,
   bubbleSize: 4,
+  bubbleDistance: 175,
 } as const;
-
-/* What the field settles at when nothing overrides it. Right on the home
-   page, which is always dark: white at 0.3 over near-black reads as texture.
-   Wrong on a light page, where a dark colour at 0.3 composites to a pale
-   grey — brand blue loses about four fifths of its saturation that way. */
-const defaultOpacity = 0.3;
 
 const TAU = Math.PI * 2;
 
@@ -51,13 +49,55 @@ type Exports = {
   stride: () => number;
 };
 
+/* Everything the simulation needs, with nothing optional left. */
+type Settings = Required<Omit<Options, 'respectReducedMotion'>>;
+
+/* Spread would let an explicit `undefined` blank a default — which is exactly
+   what a caller passing optional props through does: `{ opacity }` where
+   opacity happens to be undefined should mean "leave it alone", not "clear
+   it". Returns the keys that actually changed, since the caller needs to know
+   whether `count` was among them. */
+const applyDefined = (
+  target: Settings,
+  changes: Partial<Options>,
+): Set<string> => {
+  const applied = new Set<string>();
+
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === undefined) continue;
+
+    (target as Record<string, unknown>)[key] = value;
+    applied.add(key);
+  }
+
+  return applied;
+};
+
 type Field = {
+  /* Change settings without restarting the field. Everything but `count`
+     applies on the next frame with no respawn, because the simulation reads
+     these values every tick rather than baking them into each particle. */
+  update: (options: Partial<Options>) => void;
   destroy: () => void;
 };
 
 type Options = {
+  /* Any CSS colour. Resolved against the document, so custom properties and
+     colour functions work as well as hexes. */
   color: string;
+  /* How solid a particle is at rest, 0 to 1. Worth raising on a light
+     background: a dark colour at the default 0.3 composites against near-white
+     to something close to grey. */
   opacity?: number;
+  /* Scaled by canvas area against a 1920x1080 reference, so this is not the
+     number that appears on screen — see the README. */
+  count?: number;
+  speed?: number;
+  size?: number;
+  /* What a particle grows to directly under the pointer. */
+  bubbleSize?: number;
+  /* How far the pointer's influence reaches, in CSS pixels. */
+  bubbleDistance?: number;
   /* Set false only if the animation is genuinely essential rather than
      decorative. It defaults to true because a field of drifting particles is
      decoration, and someone who has asked their system for less motion has
@@ -107,26 +147,36 @@ const reducedMotionQuery = '(prefers-reduced-motion: reduce)';
 
 const createField = async (
   canvas: HTMLCanvasElement,
-  { color, opacity = defaultOpacity, respectReducedMotion = true }: Options,
+  { respectReducedMotion = true, ...given }: Options,
 ): Promise<Field> => {
+  /* One mutable record of the current settings, so `update` has somewhere to
+     merge into and `configure` has one place to read from. */
+  const settings: Settings = { ...defaults, color: given.color };
+
+  applyDefined(settings, given);
+
   const wasm = await instantiate();
   const context = canvas.getContext('2d');
-  const resolved = resolveColor(color, canvas);
+
+  let resolved = resolveColor(settings.color, canvas);
 
   if (!context) {
     /* No 2D context is not an error worth surfacing: the field is decoration,
        and the page is correct without it. */
-    return { destroy: (): void => {} };
+    return { update: (): void => {}, destroy: (): void => {} };
   }
 
-  wasm.configure(
-    options.count,
-    options.speed,
-    options.size,
-    options.bubbleSize,
-    opacity,
-    options.bubbleDistance,
-  );
+  const configure = (): void =>
+    wasm.configure(
+      settings.count,
+      settings.speed,
+      settings.size,
+      settings.bubbleSize,
+      settings.opacity,
+      settings.bubbleDistance,
+    );
+
+  configure();
 
   let view = new Float32Array(0);
   let width = 0;
@@ -248,6 +298,31 @@ const createField = async (
   applyMotionPreference();
 
   return {
+    update: (next: Partial<Options>): void => {
+      const { respectReducedMotion: _ignored, ...changes } = next;
+      const applied = applyDefined(settings, changes);
+
+      if (applied.has('color')) {
+        resolved = resolveColor(settings.color, canvas);
+      }
+
+      configure();
+
+      /* Count is the only setting the simulation cannot pick up on the next
+         tick: it decides how many particles exist, so the field has to spawn
+         the shortfall or drop the surplus, and the buffer view has to be
+         relaid over the new length. Everything else is read every frame. */
+      if (applied.has('count')) {
+        resize();
+      }
+
+      /* Redrawn immediately when there is no loop to do it — otherwise a
+         change under reduced motion would not appear until something else
+         forced a frame. */
+      if (!running) {
+        draw();
+      }
+    },
     destroy: (): void => {
       stop();
       window.removeEventListener('resize', resize);
@@ -258,5 +333,5 @@ const createField = async (
   };
 };
 
-export { createField, defaultOpacity, options };
+export { createField, defaults };
 export type { Field, Options };
