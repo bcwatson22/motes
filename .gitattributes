@@ -2,3 +2,14 @@
 # so no consumer needs a Rust toolchain, but it is generated rather than
 # written — keep it out of diffs, reviews and the language statistics.
 src/wasm.ts linguist-generated=true
+
+# Tests are excluded from the language statistics, so the bar describes the
+# code the package ships rather than the code that checks it. There is more
+# test than source here — 43 cases covering a canvas, an animation loop, a
+# pointer and a media query — which says something true about the rigour and
+# nothing useful about what the package is.
+#
+# Not hidden: they are in the tree, in CI, and behind the coverage badge.
+# -linguist-detectable is the attribute meant for this; marking them vendored
+# or documentation would be filing them as something they are not.
+src/*.test.ts -linguist-detectable
