@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # tracks .nvmrc, so CI cannot drift from engines.node
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm format:check
+
+      - run: pnpm typecheck
+
+      # --coverage, so the 100% thresholds in vitest.config.ts are enforced
+      - run: pnpm coverage
+
+      - run: pnpm build
+
+  # The simulation, tested where it is written. No Rust is needed to install or
+  # build this package — src/wasm.ts is committed — so this job exists to keep
+  # the crate honest rather than to produce anything.
+  crate:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: crates/particles
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+
+      - run: cargo test
+
+      - run: cargo clippy --all-targets -- -D warnings
+
+      - run: cargo fmt --check
+
+  # Guards the thing a committed artifact makes possible to forget: that
+  # src/wasm.ts still matches the crate it claims to be built from.
+  artifact:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup target add wasm32-unknown-unknown
+
+      - run: ./crates/particles/build.sh
+
+      - name: src/wasm.ts is up to date with the crate
+        run: git diff --exit-code src/wasm.ts

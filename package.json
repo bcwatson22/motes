@@ -1,0 +1,61 @@
+{
+  "name": "motes",
+  "version": "0.1.0",
+  "description": "A 4KB WebAssembly particle field. Simulation in Rust, drawing in JS, no wasm-bindgen.",
+  "keywords": [
+    "animation",
+    "background",
+    "canvas",
+    "particles",
+    "rust",
+    "wasm",
+    "webassembly"
+  ],
+  "homepage": "https://github.com/bcwatson22/motes#readme",
+  "bugs": "https://github.com/bcwatson22/motes/issues",
+  "license": "MIT",
+  "author": "Billy Watson <hello@engaging.engineering> (https://www.engaging.engineering)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bcwatson22/motes.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup && pnpm build:types",
+    "wasm": "./crates/particles/build.sh",
+    "test": "vitest",
+    "coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "verify": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm coverage && pnpm build",
+    "build:types": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@vitest/coverage-istanbul": "^4.1.11",
+    "jsdom": "^30.0.1",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "engines": {
+    "node": "^24.0.0"
+  },
+  "packageManager": "pnpm@10.20.0"
+}

@@ -1,0 +1,4 @@
+# Emitted by crates/particles/build.sh from the compiled WebAssembly. Committed
+# so no consumer needs a Rust toolchain, but it is generated rather than
+# written — keep it out of diffs, reviews and the language statistics.
+src/wasm.ts linguist-generated=true
