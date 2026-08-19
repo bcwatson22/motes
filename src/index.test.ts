@@ -55,6 +55,8 @@ type Options = {
   wasm?: ReturnType<typeof createWasm>;
   color?: string;
   opacity?: number;
+  prefersReducedMotion?: boolean;
+  respectReducedMotion?: boolean;
   /* Whether the canvas yields a 2D context at all. A flag rather than a
      nullable context, so `context` below is never null and the assertions do
      not have to chain through it. */
@@ -64,10 +66,19 @@ type Options = {
   clientHeight?: number;
 };
 
+/* Fired to simulate someone changing the setting with the page open. */
+let changeMotionPreference: (() => void) | undefined;
+
+/* And to fire the listener without the value having changed, which a media
+   query will do. */
+let refireMotionPreference: (() => void) | undefined;
+
 const setup = async ({
   wasm = createWasm(),
   color = '#245385',
   opacity,
+  prefersReducedMotion = false,
+  respectReducedMotion,
   hasContext = true,
   ratio = 1,
   clientWidth = 1280,
@@ -75,6 +86,34 @@ const setup = async ({
 }: Options = {}) => {
   const context = createContext();
   vi.stubGlobal('devicePixelRatio', ratio);
+
+  /* jsdom has no matchMedia, and the field reads one at startup. Matches on
+     the reduced-motion query only, so a stub cannot accidentally report every
+     query as true. */
+  let matches = prefersReducedMotion;
+
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn<(query: string) => MediaQueryList>(
+      (query: string) =>
+        ({
+          get matches() {
+            return query.includes('reduced-motion') ? matches : false;
+          },
+          media: query,
+          addEventListener: vi.fn<(type: string, handler: () => void) => void>(
+            (_, handler) => {
+              changeMotionPreference = () => {
+                matches = !matches;
+                handler();
+              };
+              refireMotionPreference = handler;
+            },
+          ),
+          removeEventListener: vi.fn<() => void>(),
+        }) as unknown as MediaQueryList,
+    ),
+  );
   /* Cast through Mock: `instantiate` is overloaded, and TypeScript resolves
      the spy to the Module signature — which resolves to an Instance rather
      than the { instance } this one returns. */
@@ -90,7 +129,11 @@ const setup = async ({
     hasContext ? (context as unknown as CanvasRenderingContext2D) : null,
   );
 
-  const field = await createField(canvas, { color, opacity });
+  const field = await createField(canvas, {
+    color,
+    opacity,
+    respectReducedMotion,
+  });
 
   return { field, wasm, context, canvas };
 };
@@ -104,6 +147,8 @@ const advance = (at: number): void => {
 
 describe('createField', () => {
   beforeEach(() => {
+    changeMotionPreference = undefined;
+    refireMotionPreference = undefined;
     vi.clearAllMocks();
     vi.stubGlobal(
       'requestAnimationFrame',
@@ -310,6 +355,92 @@ describe('createField', () => {
       advance(performance.now() + 16);
 
       expect(context.globalAlpha).toBe(1);
+    });
+  });
+
+  /* A drifting field is decoration, and someone who has asked their system for
+     less motion has asked for a reason. The package honours that itself rather
+     than leaving it to whoever pastes the example. */
+  describe('reduced motion', () => {
+    it('does not start the loop', async () => {
+      await setup({ prefersReducedMotion: true });
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(0);
+    });
+
+    /* Drawn once and left alone: the guidance is to remove the motion, not the
+       content. An empty canvas is a missing feature. */
+    it('still draws the field, once', async () => {
+      const { context } = await setup({
+        prefersReducedMotion: true,
+        wasm: createWasm({ count: 3 }),
+      });
+
+      expect(context.arc).toHaveBeenCalledTimes(3);
+    });
+
+    it('starts the loop if the preference is turned off', async () => {
+      await setup({ prefersReducedMotion: true });
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(0);
+
+      changeMotionPreference?.();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops the loop if the preference is turned on', async () => {
+      await setup();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+      changeMotionPreference?.();
+
+      expect(cancelAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    /* A media query will fire change without the value having flipped, so
+       re-applying the preference must not queue a second loop alongside the
+       one already running. */
+    it('does not start a second loop when it is already running', async () => {
+      await setup();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+      refireMotionPreference?.();
+      refireMotionPreference?.();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    it('resumes after being stopped and started again', async () => {
+      await setup();
+
+      changeMotionPreference?.();
+      changeMotionPreference?.();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+      expect(cancelAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops listening when destroyed', async () => {
+      const { field } = await setup();
+
+      field.destroy();
+      changeMotionPreference?.();
+
+      expect(cancelAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    describe('when the caller opts out', () => {
+      it('animates anyway', async () => {
+        await setup({
+          prefersReducedMotion: true,
+          respectReducedMotion: false,
+        });
+
+        expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+      });
     });
   });
 

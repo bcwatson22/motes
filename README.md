@@ -33,6 +33,12 @@ field.destroy();
       Defaults to <code>0.3</code>. How solid a particle is at rest. Worth raising on a light background — see below.
     </td>
   </tr>
+  <tr>
+    <td width="120"><code>respectReducedMotion</code></td>
+    <td>
+      Defaults to <code>true</code>. Set it false only if the animation is genuinely essential rather than decorative — see <a href="#accessibility">Accessibility</a>.
+    </td>
+  </tr>
 </table>
 
 `createField` resolves to `{ destroy }`. Call it on unmount: it cancels the animation frame and removes the window listeners. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
@@ -115,6 +121,29 @@ The module is inlined as base64, which costs about 680 bytes gzipped over fetchi
 **The particle count is not the number you pass.** It is scaled by canvas area against a 1920×1080 reference, so a 1280×800 canvas gets about half of it. This matches the convention the effect was ported from, and means a field looks about as dense on a phone as on a desktop rather than becoming soup.
 
 **A dark colour at the default opacity looks grey.** Brand blue at `0.3` over a near-white page composites to 14% saturation, against the colour's own 73%. On a light background raise `opacity` to somewhere near `0.55`; the bubble follows, being derived as twice the resting value.
+
+## Accessibility
+
+**The field honours `prefers-reduced-motion` by default.** Where someone has
+asked their system for less motion, it draws a single frame and never starts the
+animation loop — the particles are there, they are simply still. The guidance is
+to remove the motion rather than the content, and an empty canvas is a missing
+feature rather than a considerate one.
+
+It subscribes rather than reading the preference once, so changing the setting
+with the page open stops or starts the field without a reload.
+
+Pass `respectReducedMotion: false` to opt out. There are cases where an
+animation carries meaning and removing it removes information — but a drifting
+background is not one of them, so the default is on and the escape hatch is
+explicit.
+
+The canvas itself carries no information, so give it `aria-hidden="true"` and
+keep it out of the accessibility tree:
+
+```html
+<canvas aria-hidden="true"></canvas>
+```
 
 ## Content Security Policy
 
