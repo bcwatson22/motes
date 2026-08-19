@@ -65,6 +65,9 @@ const ParticlesCanvas = ({ color = '#ffffff' }: { color?: string }) => {
   useEffect(() => {
     if (!ref.current) return;
 
+    /* These two cover different races. `field` is what the cleanup destroys
+       when the component unmounts normally; `cancelled` is what stops a field
+       that arrives after the cleanup has already run. */
     let field: Field | undefined;
     let cancelled = false;
 
@@ -78,6 +81,8 @@ const ParticlesCanvas = ({ color = '#ffffff' }: { color?: string }) => {
           return;
         }
 
+        /* Kept so the cleanup below has something to destroy. Assigned in
+           one closure and read in another, which is why it can look unused. */
         field = created;
       })
       /* Not worth an error boundary: the page is correct without a decorative
@@ -97,10 +102,66 @@ const ParticlesCanvas = ({ color = '#ffffff' }: { color?: string }) => {
 export { ParticlesCanvas };
 ```
 
-The `cancelled` flag is the part worth copying. `createField` is async, so a
-component that mounts and unmounts quickly — a route change, a Suspense
-boundary resolving — can finish instantiating after the cleanup has already
-run. Without the flag that field animates forever, unreachable.
+The two variables are the part worth copying, because they cover different
+races and neither covers the other:
+
+<table>
+  <tr>
+    <td width="230"><strong>Unmounted before it resolves</strong></td>
+    <td>Cleanup runs first, so <code>field</code> is still undefined and destroys nothing. The promise then resolves, sees <code>cancelled</code>, and destroys immediately. A route change or a Suspense boundary resolving will do this.</td>
+  </tr>
+  <tr>
+    <td width="230"><strong>Unmounted after it resolves</strong></td>
+    <td>Cleanup calls <code>field.destroy()</code> on the handle. This is the common case, since most unmounts happen long after mount.</td>
+  </tr>
+</table>
+
+Drop the assignment and the second case leaks: the field starts its animation
+loop and the component goes away with nothing holding a reference to stop it.
+Drop the flag and the first case leaks the same way. Both are needed.
+
+### Using a ref instead
+
+A `useRef` works too, and is equivalent for this component:
+
+```tsx
+const fieldRef = useRef<Field | null>(null);
+
+useEffect(() => {
+  if (!ref.current) return;
+
+  let cancelled = false;
+
+  createField(ref.current, { color })
+    .then((created) => {
+      if (cancelled) {
+        created.destroy();
+
+        return;
+      }
+
+      fieldRef.current = created;
+    })
+    .catch(() => {});
+
+  return () => {
+    cancelled = true;
+    fieldRef.current?.destroy();
+    /* Cleared, unlike the `let`. A ref outlives the effect, so a stale handle
+       would survive into the next run. */
+    fieldRef.current = null;
+  };
+}, [color]);
+```
+
+Note it still needs `cancelled` — a ref does nothing about the pre-resolution
+race — and it adds an obligation to null the ref on the way out. So for a
+component that only creates and destroys, the plain `let` is less to get wrong.
+
+The ref earns its keep the moment something _outside_ the effect needs the
+field: a control that changes its options, a button that pauses it, anything
+that has to reach the handle from an event. Then a local variable is not
+enough, because nothing outside the effect can see it.
 
 The canvas needs dimensions from CSS. `position: fixed; inset: 0` for a
 full-page background, or any sized box for a contained one; the field reads
