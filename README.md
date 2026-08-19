@@ -5,10 +5,10 @@
 
 A drifting particle field for a canvas, in about 4KB. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
 
-To use it, run `npm i motes` — there is no asset to host and no path to configure, because the compiled module is inlined into the package.
+To use it, run `npm i @bcwatson22/motes` — there is no asset to host and no path to configure, because the compiled module is inlined into the package.
 
 ```js
-import { createField } from 'motes';
+import { createField } from '@bcwatson22/motes';
 
 const field = await createField(document.querySelector('canvas'), {
   color: '#ffffff',
