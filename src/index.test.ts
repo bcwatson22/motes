@@ -143,12 +143,15 @@ const setup = async ({
   return { field, wasm, context, canvas };
 };
 
-/* Runs the frame the loop has queued, and returns the next one. */
+/* Runs the frame the loop has queued. */
 const advance = (at: number): void => {
   const queued = (requestAnimationFrame as Mock).mock.calls.at(-1)?.[0];
 
   queued?.(at);
 };
+
+/* One frame at roughly 60fps, which is what almost every test wants. */
+const frame = (): void => advance(performance.now() + 16);
 
 describe('createField', () => {
   beforeEach(() => {
@@ -169,17 +172,12 @@ describe('createField', () => {
 
   /* Inlined rather than fetched: no asset to host, no path to configure, and
      nothing that can 404 in a consumer's app. */
-  it('instantiates the inlined module', async () => {
-    await setup();
-
-    expect(WebAssembly.instantiate).toHaveBeenCalledTimes(1);
-  });
-
-  it('decodes the module to bytes before instantiating', async () => {
+  it('decodes and instantiates the inlined module', async () => {
     await setup();
 
     const [bytes] = (WebAssembly.instantiate as unknown as Mock).mock.calls[0];
 
+    expect(WebAssembly.instantiate).toHaveBeenCalledTimes(1);
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect((bytes as Uint8Array).length).toBeGreaterThan(0);
   });
@@ -256,7 +254,7 @@ describe('createField', () => {
     it('draws one arc per particle', async () => {
       const { context } = await setup({ wasm: createWasm({ count: 3 }) });
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.arc).toHaveBeenCalledTimes(3);
     });
@@ -264,7 +262,7 @@ describe('createField', () => {
     it('clears the canvas before drawing', async () => {
       const { context } = await setup();
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.clearRect).toHaveBeenNthCalledWith(1, 0, 0, 1280, 800);
     });
@@ -275,7 +273,7 @@ describe('createField', () => {
     it('draws in the colour it was given, resolved', async () => {
       const { context } = await setup();
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.fillStyle).toBe('rgb(36, 83, 133)');
     });
@@ -295,7 +293,7 @@ describe('createField', () => {
 
       const { context } = await setup({ color: '#245385' });
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.fillStyle).toBe('#245385');
     });
@@ -311,7 +309,7 @@ describe('createField', () => {
         wasm: createWasm({ count: 1, radii: [3.5] }),
       });
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.arc).toHaveBeenNthCalledWith(
         1,
@@ -326,7 +324,7 @@ describe('createField', () => {
     it('queues the next frame', async () => {
       await setup();
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
     });
@@ -347,7 +345,7 @@ describe('createField', () => {
         alphas.push(context.globalAlpha);
       });
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(alphas).toEqual([0.5, 0.75]);
     });
@@ -357,7 +355,7 @@ describe('createField', () => {
         wasm: createWasm({ count: 1, alphas: [0.5] }),
       });
 
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.globalAlpha).toBe(1);
     });
@@ -456,7 +454,7 @@ describe('createField', () => {
       window.dispatchEvent(
         new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
       );
-      advance(performance.now() + 16);
+      frame();
 
       expect((wasm.tick as Mock).mock.calls[0].slice(1)).toEqual([400, 300]);
     });
@@ -477,7 +475,7 @@ describe('createField', () => {
       window.dispatchEvent(
         new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
       );
-      advance(performance.now() + 16);
+      frame();
 
       expect((wasm.tick as Mock).mock.calls[0].slice(1)).toEqual([280, 220]);
     });
@@ -491,7 +489,7 @@ describe('createField', () => {
         new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
       );
       window.dispatchEvent(new PointerEvent('pointerleave'));
-      advance(performance.now() + 16);
+      frame();
 
       const [, x, y] = (wasm.tick as Mock).mock.calls[0];
 
@@ -568,7 +566,7 @@ describe('createField', () => {
       const { field, context } = await setup();
 
       field.update({ color: '#f9fafb' });
-      advance(performance.now() + 16);
+      frame();
 
       expect(context.fillStyle).toBe('rgb(249, 250, 251)');
     });
