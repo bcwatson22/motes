@@ -58,6 +58,11 @@ type Field = {
 type Options = {
   color: string;
   opacity?: number;
+  /* Set false only if the animation is genuinely essential rather than
+     decorative. It defaults to true because a field of drifting particles is
+     decoration, and someone who has asked their system for less motion has
+     asked for a reason. */
+  respectReducedMotion?: boolean;
 };
 
 /* The module is inlined rather than fetched, so there is no asset to host, no
@@ -98,9 +103,11 @@ const resolveColor = (value: string, element: HTMLElement): string => {
   return computed || value;
 };
 
+const reducedMotionQuery = '(prefers-reduced-motion: reduce)';
+
 const createField = async (
   canvas: HTMLCanvasElement,
-  { color, opacity = defaultOpacity }: Options,
+  { color, opacity = defaultOpacity, respectReducedMotion = true }: Options,
 ): Promise<Field> => {
   const wasm = await instantiate();
   const context = canvas.getContext('2d');
@@ -185,6 +192,7 @@ const createField = async (
   };
 
   let frame = 0;
+  let running = false;
   let last = performance.now();
 
   const step = (now: number): void => {
@@ -194,20 +202,58 @@ const createField = async (
     frame = requestAnimationFrame(step);
   };
 
+  const start = (): void => {
+    if (running) return;
+
+    running = true;
+    /* Reset, or resuming after a pause hands the first frame the entire time
+       the loop was stopped and teleports the field. */
+    last = performance.now();
+    frame = requestAnimationFrame(step);
+  };
+
+  const stop = (): void => {
+    if (!running) return;
+
+    running = false;
+    cancelAnimationFrame(frame);
+  };
+
+  const motion = window.matchMedia(reducedMotionQuery);
+
+  const applyMotionPreference = (): void => {
+    if (respectReducedMotion && motion.matches) {
+      stop();
+
+      /* Drawn once, and then left alone. The guidance is to remove the motion,
+         not the content — a still field is a background that is not moving,
+         where an empty canvas is a missing feature. */
+      draw();
+
+      return;
+    }
+
+    start();
+  };
+
   resize();
 
   window.addEventListener('resize', resize);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerleave', onPointerLeave);
+  /* Subscribed rather than read once: someone changing the setting with the
+     page open should see the field stop, without reloading. */
+  motion.addEventListener('change', applyMotionPreference);
 
-  frame = requestAnimationFrame(step);
+  applyMotionPreference();
 
   return {
     destroy: (): void => {
-      cancelAnimationFrame(frame);
+      stop();
       window.removeEventListener('resize', resize);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerleave', onPointerLeave);
+      motion.removeEventListener('change', applyMotionPreference);
     },
   };
 };
