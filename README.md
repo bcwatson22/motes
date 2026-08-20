@@ -1,7 +1,7 @@
 # Motes
 
 [![CI](https://github.com/bcwatson22/motes/actions/workflows/ci.yml/badge.svg)](https://github.com/bcwatson22/motes/actions/workflows/ci.yml)
-![Coverage 100%](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Coverage 100%](https://img.shields.io/badge/coverage-100%25-2EBB4F?labelColor=343B42)
 
 A drifting particle field for a canvas, in 4.3KB gzipped. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
 
@@ -84,7 +84,9 @@ That makes `update` the right tool for a control someone drags. Destroying and
 recreating the field on every input event restarts the animation on every pixel
 of the drag; this does not.
 
-`destroy` cancels the animation frame and removes the window listeners. Call it on unmount. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
+`destroy` cancels the animation frame and removes the window listeners. Call it on unmount.
+
+The field follows the window on its own: resizing reflows it, carrying the particles already on the canvas into the new box in proportion and spawning whatever the new area calls for. There is no need to debounce that or to recreate the field — it is a multiply per particle. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
 
 ## Usage with React
 

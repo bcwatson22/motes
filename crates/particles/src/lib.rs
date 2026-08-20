@@ -322,6 +322,35 @@ pub extern "C" fn count() -> usize {
 pub extern "C" fn resize(width: f32, height: f32) {
     let s = state();
 
+    /* Existing particles are carried into the new box in proportion, rather
+    than left where they were.
+
+    Spawning only the shortfall is what makes this necessary: grow the
+    canvas and the particles already on it stay in the region they were
+    spawned into, while the newcomers spread over the whole of the larger
+    one. The old region ends up holding its own particles plus a share of
+    the new, and the space just revealed holds only its share — which reads
+    as a field that is denser on one side.
+
+    One multiply each, so there is no reason to defer it to a debounced
+    handler: it can run on every resize event and the field simply follows
+    the window. */
+    if s.count > 0 && s.width > 0.0 && s.height > 0.0 {
+        let horizontal = width / s.width;
+        let vertical = height / s.height;
+
+        let mut i = 0;
+
+        while i < s.count {
+            let o = i * STRIDE;
+
+            s.data[o] *= horizontal;
+            s.data[o + 1] *= vertical;
+
+            i += 1;
+        }
+    }
+
     s.width = width;
     s.height = height;
 
@@ -416,12 +445,77 @@ mod tests {
         reset();
         resize(1280.0, 800.0);
 
-        let first = state().data[0];
+        let before = state().count;
 
         resize(1920.0, 1080.0);
 
-        assert_eq!(state().data[0], first);
+        /* Reflowed, not restarted: the field grows to the count the new area
+        calls for rather than being thrown away and respawned. */
+        assert_eq!(before, 296);
         assert_eq!(state().count, 600);
+    }
+
+    /// Spawning only the shortfall would otherwise leave the particles already
+    /// on the canvas bunched in the region they were spawned into, and the
+    /// space just revealed holding only its share of the newcomers.
+    #[test]
+    fn carries_existing_particles_into_the_new_box() {
+        let _guard = lock();
+
+        reset();
+        resize(1000.0, 500.0);
+
+        let s = state();
+
+        // A particle at a known fraction of the way across.
+        s.data[0] = 500.0;
+        s.data[1] = 250.0;
+
+        resize(2000.0, 1000.0);
+
+        let s = state();
+
+        assert_eq!(s.data[0], 1000.0);
+        assert_eq!(s.data[1], 500.0);
+    }
+
+    #[test]
+    fn spreads_the_whole_field_rather_than_one_half_of_it() {
+        let _guard = lock();
+
+        reset();
+        resize(600.0, 600.0);
+
+        // Double the width. Half the particles should end up in each half.
+        resize(1200.0, 600.0);
+
+        let s = state();
+        let mut right = 0;
+
+        for i in 0..s.count {
+            if s.data[i * STRIDE] > 600.0 {
+                right += 1;
+            }
+        }
+
+        let share = right as f32 / s.count as f32;
+
+        assert!(
+            (share - 0.5).abs() < 0.1,
+            "{right} of {} particles landed in the new half",
+            s.count
+        );
+    }
+
+    /// The first resize has no previous box to scale from.
+    #[test]
+    fn survives_a_first_resize_from_nothing() {
+        let _guard = lock();
+
+        reset();
+        resize(1280.0, 800.0);
+
+        assert_eq!(state().count, 296);
     }
 
     /// Checked against std's `sin`, which the host build has — the wasm build
