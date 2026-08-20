@@ -1,6 +1,6 @@
 {
   "name": "@bcwatson22/motes",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A particle field for a canvas in 4.3KB gzipped. Simulation in Rust, drawing in JS, no wasm-bindgen.",
   "keywords": [
     "animation",
