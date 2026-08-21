@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/bcwatson22/motes/actions/workflows/ci.yml/badge.svg)](https://github.com/bcwatson22/motes/actions/workflows/ci.yml)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-2EBB4F?labelColor=343B42)
+[![npm](https://img.shields.io/npm/v/@bcwatson22/motes?labelColor=343B42&color=1F6FEB)](https://www.npmjs.com/package/@bcwatson22/motes)
+![gzipped 4.3 kB](https://img.shields.io/badge/gzipped-4.3%20kB-1F6FEB?labelColor=343B42)
+![license](https://img.shields.io/github/license/bcwatson22/motes?labelColor=343B42&color=6E7681)
 
 A drifting particle field for a canvas, in 4.3KB gzipped. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
 
@@ -291,7 +294,7 @@ following it while the page is open. See [Accessibility](#accessibility).
 <table>
   <tr>
     <td width="58">
-      <img src="https://cdn.simpleicons.org/rust" alt="Rust icon" width="32" />
+      <img src="https://cdn.simpleicons.org/rust/000000/FFFFFF" alt="Rust icon" width="32" />
     </td>
     <td>
       The simulation — spawn, drift, edge wrapping, and the pointer bubble. It writes what the canvas needs rather than what the simulation thinks in: each particle's final radius and alpha, already interpolated, so the drawing half recomputes nothing.
@@ -304,7 +307,7 @@ following it while the page is open. See [Accessibility](#accessibility).
 <table>
   <tr>
     <td width="58">
-      <img src="https://cdn.simpleicons.org/webassembly" alt="WebAssembly icon" width="32" />
+      <img src="https://cdn.simpleicons.org/webassembly/654FF0/654FF0" alt="WebAssembly icon" width="32" />
     </td>
     <td>
       The module keeps <code>[x, y, vx, vy, radius, alpha]</code> per particle in its own linear memory and exposes a pointer to it. JavaScript lays a <code>Float32Array</code> over that same memory and reads it directly — one <code>tick()</code> call per frame, then ordinary canvas arcs. Calling into WebAssembly once per <em>particle</em> is what makes naive ports slower than the JavaScript they replace.
@@ -317,7 +320,7 @@ following it while the page is open. See [Accessibility](#accessibility).
 <table>
   <tr>
     <td width="58">
-      <img src="https://cdn.simpleicons.org/typescript" alt="TypeScript icon" width="32" />
+      <img src="https://cdn.simpleicons.org/typescript/3178C6/3178C6" alt="TypeScript icon" width="32" />
     </td>
     <td>
       The drawing half: instantiate, size the canvas, track the pointer, run the loop. Deliberately no <code>wasm-bindgen</code> — the whole interface is a pointer and a handful of floats, which <code>extern "C"</code> expresses directly. Bindings would add a code generator, a directory of generated glue and a build step to say what six exported functions already say.
@@ -330,7 +333,7 @@ following it while the page is open. See [Accessibility](#accessibility).
 <table>
   <tr>
     <td width="58">
-      <img src="https://cdn.simpleicons.org/vitest" alt="Vitest icon" width="32" />
+      <img src="https://cdn.simpleicons.org/vitest/068C46/00FF74" alt="Vitest icon" width="32" />
     </td>
     <td>
       100% coverage of the drawing half, with the module mocked out. The simulation is tested where it is written, in Rust, with <code>cargo test</code>. Both run in CI, along with a job that rebuilds the committed artifact and fails if it has drifted from the crate.
