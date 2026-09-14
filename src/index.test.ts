@@ -506,6 +506,136 @@ describe('createField', () => {
 
       expect(wasm.resize).toHaveBeenCalledTimes(2);
     });
+
+    /* Resizing the backing store clears the canvas, and a running loop
+       repaints it on the next frame anyway. */
+    it('leaves a running loop to repaint', async () => {
+      const { context } = await setup({ wasm: createWasm({ count: 2 }) });
+
+      window.dispatchEvent(new Event('resize'));
+
+      expect(context.arc).toHaveBeenCalledTimes(0);
+    });
+
+    /* With no loop, nothing else would repaint it, and the field would sit
+       blank until the next update. */
+    it('redraws straight away when the loop is not running', async () => {
+      const { context } = await setup({
+        prefersReducedMotion: true,
+        wasm: createWasm({ count: 2 }),
+      });
+
+      window.dispatchEvent(new Event('resize'));
+
+      expect(context.arc).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  /* A page's own pause control. Destroying and recreating the field would
+     scatter a new one, so pausing has to hold the particles where they are. */
+  describe('pause', () => {
+    it('stops the loop', async () => {
+      const { field } = await setup();
+
+      field.pause();
+
+      expect(cancelAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the field on the canvas', async () => {
+      const { field, context } = await setup();
+
+      frame();
+      field.pause();
+
+      expect(context.clearRect).toHaveBeenCalledTimes(1);
+    });
+
+    it('is safe to call twice', async () => {
+      const { field } = await setup();
+
+      field.pause();
+      field.pause();
+
+      expect(cancelAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    /* A media query can fire change with the page open; turning reduced
+       motion off must not quietly undo a pause someone asked for. */
+    it('holds when reduced motion is turned off', async () => {
+      const { field } = await setup({ prefersReducedMotion: true });
+
+      field.pause();
+      changeMotionPreference?.();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(0);
+    });
+
+    it('still applies updates while paused', async () => {
+      const { field, context } = await setup({
+        wasm: createWasm({ count: 2 }),
+      });
+
+      field.pause();
+      field.update({ size: 3 });
+
+      expect(context.arc).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('resume', () => {
+    it('starts the loop again', async () => {
+      const { field } = await setup();
+
+      field.pause();
+      field.resume();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
+    });
+
+    /* The first frame after resuming is measured from the resume, not from
+       the last frame before the pause, or the field teleports. */
+    it('does not hand the first frame the time spent paused', async () => {
+      const { field, wasm } = await setup();
+
+      vi.spyOn(performance, 'now').mockReturnValue(10_000);
+      field.pause();
+
+      (performance.now as Mock).mockReturnValue(60_000);
+      field.resume();
+      advance(60_016);
+
+      expect((wasm.tick as Mock).mock.calls[0][0]).toBe(16);
+    });
+
+    it('does not start a second loop when not paused', async () => {
+      const { field } = await setup();
+
+      field.resume();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    });
+
+    /* Resuming is the caller's decision; reduced motion is the visitor's, and
+       it outranks the page. */
+    it('leaves the field still under reduced motion', async () => {
+      const { field } = await setup({ prefersReducedMotion: true });
+
+      field.pause();
+      field.resume();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(0);
+    });
+
+    it('lets reduced motion being turned off start it again', async () => {
+      const { field } = await setup({ prefersReducedMotion: true });
+
+      field.pause();
+      field.resume();
+      changeMotionPreference?.();
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    });
   });
 
   /* The point of update over destroy-and-recreate: a control that restarts the
@@ -611,6 +741,15 @@ describe('createField', () => {
         const { field } = await setup({ hasContext: false });
 
         expect(() => field.update({ speed: 1 })).not.toThrow();
+      });
+
+      it('is safe to pause and resume', async () => {
+        const { field } = await setup({ hasContext: false });
+
+        expect(() => {
+          field.pause();
+          field.resume();
+        }).not.toThrow();
       });
     });
   });
