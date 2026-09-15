@@ -68,7 +68,7 @@ field.destroy();
 
 ### Changing settings while it runs
 
-`createField` resolves to `{ update, destroy }`.
+`createField` resolves to `{ update, pause, resume, destroy }`.
 
 ```js
 field.update({ speed: 1.5, color: 'var(--brand-blue)' });
@@ -86,6 +86,19 @@ exist, so changing it spawns the shortfall or drops the surplus.
 That makes `update` the right tool for a control someone drags. Destroying and
 recreating the field on every input event restarts the animation on every pixel
 of the drag; this does not.
+
+### Pausing
+
+```js
+field.pause();
+field.resume();
+```
+
+`pause` stops the animation loop and leaves the field exactly where it is: the particles stay on the canvas, and `resume` carries on from that frame. Destroying and recreating the field would scatter a new one instead, which reads as a jump.
+
+`update` still works while paused, and redraws straight away so the change is visible. Both calls are safe to repeat.
+
+Reduced motion outranks `resume`. Resuming a field whose visitor has asked for less motion leaves it still, and a pause is kept if that preference is turned off with the page open.
 
 `destroy` cancels the animation frame and removes the window listeners. Call it on unmount.
 
@@ -402,6 +415,11 @@ Pass `respectReducedMotion: false` to opt out. There are cases where an
 animation carries meaning and removing it removes information — but a drifting
 background is not one of them, so the default is on and the escape hatch is
 explicit.
+
+**It can be paused.** WCAG 2.2.2 asks for a way to pause anything that moves
+for more than five seconds alongside other content, and a system preference
+many people never find does not meet that on its own. Wire a page control to
+`field.pause()` and `field.resume()` — see [Pausing](#pausing).
 
 The canvas itself carries no information, so give it `aria-hidden="true"` and
 keep it out of the accessibility tree:

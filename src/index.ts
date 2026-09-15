@@ -78,6 +78,14 @@ type Field = {
      applies on the next frame with no respawn, because the simulation reads
      these values every tick rather than baking them into each particle. */
   update: (options: Partial<Options>) => void;
+  /* Stop the animation loop and hold the field where it is. The particles
+     stay on the canvas and keep their positions, so resume carries on from
+     the same frame rather than scattering a new field. For a page's own
+     pause control (WCAG 2.2.2), where destroying and recreating would jump. */
+  pause: () => void;
+  /* Start the loop again after pause. Reduced motion still wins: resuming a
+     field whose visitor has asked for less motion leaves it still. */
+  resume: () => void;
   destroy: () => void;
 };
 
@@ -163,7 +171,12 @@ const createField = async (
   if (!context) {
     /* No 2D context is not an error worth surfacing: the field is decoration,
        and the page is correct without it. */
-    return { update: (): void => {}, destroy: (): void => {} };
+    return {
+      update: (): void => {},
+      pause: (): void => {},
+      resume: (): void => {},
+      destroy: (): void => {},
+    };
   }
 
   const configure = (): void =>
@@ -253,6 +266,10 @@ const createField = async (
 
   let frame = 0;
   let running = false;
+  /* Asked for by the caller, as distinct from `running`, which is whether a
+     loop is queued. Reduced motion can stop the loop without anyone pausing,
+     and a pause has to survive that preference being turned off again. */
+  let paused = false;
   let last = performance.now();
 
   const step = (now: number): void => {
@@ -282,7 +299,7 @@ const createField = async (
   const motion = window.matchMedia(reducedMotionQuery);
 
   const applyMotionPreference = (): void => {
-    if (respectReducedMotion && motion.matches) {
+    if (paused || (respectReducedMotion && motion.matches)) {
       stop();
 
       /* Drawn once, and then left alone. The guidance is to remove the motion,
@@ -296,9 +313,20 @@ const createField = async (
     start();
   };
 
+  /* Setting a canvas's width clears it, so a field with no loop to redraw it
+     — paused, or still under reduced motion — has to draw straight away or it
+     goes blank until something else forces a frame. */
+  const onResize = (): void => {
+    resize();
+
+    if (!running) {
+      draw();
+    }
+  };
+
   resize();
 
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', onResize);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerleave', onPointerLeave);
   /* Subscribed rather than read once: someone changing the setting with the
@@ -333,9 +361,17 @@ const createField = async (
         draw();
       }
     },
+    pause: (): void => {
+      paused = true;
+      stop();
+    },
+    resume: (): void => {
+      paused = false;
+      applyMotionPreference();
+    },
     destroy: (): void => {
       stop();
-      window.removeEventListener('resize', resize);
+      window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerleave', onPointerLeave);
       motion.removeEventListener('change', applyMotionPreference);
