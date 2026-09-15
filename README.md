@@ -3,10 +3,10 @@
 [![CI](https://github.com/bcwatson22/motes/actions/workflows/ci.yml/badge.svg)](https://github.com/bcwatson22/motes/actions/workflows/ci.yml)
 ![Coverage 100%](https://img.shields.io/badge/coverage-100%25-2EBB4F?labelColor=343B42)
 [![npm](https://img.shields.io/npm/v/@bcwatson22/motes?labelColor=343B42&color=1F6FEB)](https://www.npmjs.com/package/@bcwatson22/motes)
-![gzipped 4.3 kB](https://img.shields.io/badge/gzipped-4.3%20kB-1F6FEB?labelColor=343B42)
+![gzipped 4.4 kB](https://img.shields.io/badge/gzipped-4.4%20kB-1F6FEB?labelColor=343B42)
 ![license](https://img.shields.io/github/license/bcwatson22/motes?labelColor=343B42&color=6E7681)
 
-A drifting particle field for a canvas, in 4.3KB gzipped. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
+A drifting particle field for a canvas, in 4.4KB gzipped. The simulation is written in [Rust](https://www.rust-lang.org/) and compiled to [WebAssembly](https://webassembly.org/); the drawing stays in [TypeScript](https://www.typescriptlang.org/). Built for [engaging.engineering](https://www.engaging.engineering), where it replaced a general-purpose particle engine and took 14% off the site's client JavaScript.
 
 To use it, run `npm i @bcwatson22/motes` — there is no asset to host and no path to configure, because the compiled module is inlined into the package.
 
@@ -103,6 +103,10 @@ Reduced motion outranks `resume`. Resuming a field whose visitor has asked for l
 `destroy` cancels the animation frame and removes the window listeners. Call it on unmount.
 
 The field follows the window on its own: resizing reflows it, carrying the particles already on the canvas into the new box in proportion and spawning whatever the new area calls for. There is no need to debounce that or to recreate the field — it is a multiply per particle. The canvas is sized from its own `clientWidth` and `clientHeight` with the backing store scaled by `devicePixelRatio`, so give it dimensions in CSS and it will be sharp on a retina display.
+
+### Touch
+
+The pointer bubble works on a touch screen with nothing to wire up. A tap moves the bubble to where it landed and leaves it there once the finger lifts, the way a resting mouse would, and a finger dragged across the page is followed through the scroll it starts. A tap fires no `pointermove` and a scroll stops pointer events altogether, so the field also listens for `pointerdown` and for `touchmove` — passively, so it never holds the scroll up.
 
 ## Usage with React
 
@@ -382,11 +386,11 @@ For the avoidance of the usual ambiguity about what a size claim covers:
   </tr>
   <tr>
     <td width="260">What you install, minified</td>
-    <td>9,171 bytes</td>
+    <td>9,452 bytes</td>
   </tr>
   <tr>
     <td width="260"><strong>What you ship, gzipped</strong></td>
-    <td><strong>4,323 bytes</strong></td>
+    <td><strong>4,414 bytes</strong></td>
   </tr>
 </table>
 
