@@ -1,11 +1,58 @@
 import type { Mock } from 'vitest';
 
-import { createField, defaults } from './index';
+import { createField, defaults, type Options as FieldOptions } from './index';
+import { wasm as encoded } from './wasm';
 
 /* A stand-in for the compiled module. The simulation itself is tested in Rust
    with cargo; what matters here is that this half drives it correctly and
    draws what it reports. */
 const stride = 6;
+
+/* Where the stand-in puts its first particle; each one after is a pixel on. */
+const spawn = { x: 10, y: 20 };
+
+const width = 1280;
+const height = 800;
+const color = '#245385';
+
+/* Mirrors the field's own parking spot for a pointer it has not seen: far
+   enough away that nothing is ever within the bubble radius. */
+const parked = -1e9;
+
+/* One frame at roughly 60fps, which is what almost every test wants. */
+const elapsed = 16;
+
+type Point = { clientX: number; clientY: number };
+
+/* Anywhere will do; what matters is that the same point comes back out. */
+const point: Point = { clientX: 400, clientY: 300 };
+
+/* A canvas that is not at the viewport origin, as one in a box would be. */
+const inset = { left: 120, top: 80 } as DOMRect;
+
+/* The arguments `configure` takes, in its order, for the defaults with any
+   overrides merged over them. */
+const configuredWith = (overrides: Partial<FieldOptions> = {}): number[] => {
+  const settings = { ...defaults, ...overrides };
+
+  return [
+    settings.count,
+    settings.speed,
+    settings.size,
+    settings.bubbleSize,
+    settings.opacity,
+    settings.bubbleDistance,
+  ];
+};
+
+const pointer = (type: string, init: PointerEventInit = {}): void => {
+  window.dispatchEvent(new PointerEvent(type, { ...point, ...init }));
+};
+
+/* jsdom has no Touch constructor, so the list is laid on a plain event. */
+const touchMove = (touches: Point[] = [point]): void => {
+  window.dispatchEvent(Object.assign(new Event('touchmove'), { touches }));
+};
 
 type WasmOptions = {
   count?: number;
@@ -24,8 +71,8 @@ const createWasm = ({
   const view = new Float32Array(buffer);
 
   for (let i = 0; i < count; i++) {
-    view[i * stride] = 10 + i;
-    view[i * stride + 1] = 20 + i;
+    view[i * stride] = spawn.x + i;
+    view[i * stride + 1] = spawn.y + i;
     view[i * stride + 4] = radii[i] ?? defaults.size;
     view[i * stride + 5] = alphas[i] ?? defaults.opacity;
   }
@@ -75,14 +122,14 @@ let refireMotionPreference: (() => void) | undefined;
 
 const setup = async ({
   wasm = createWasm(),
-  color = '#245385',
+  color: given = color,
   opacity,
   prefersReducedMotion = false,
   respectReducedMotion,
   hasContext = true,
   ratio = 1,
-  clientWidth = 1280,
-  clientHeight = 800,
+  clientWidth = width,
+  clientHeight = height,
 }: Options = {}) => {
   const context = createContext();
   vi.stubGlobal('devicePixelRatio', ratio);
@@ -135,7 +182,7 @@ const setup = async ({
   );
 
   const field = await createField(canvas, {
-    color,
+    color: given,
     opacity,
     respectReducedMotion,
   });
@@ -150,8 +197,7 @@ const advance = (at: number): void => {
   queued?.(at);
 };
 
-/* One frame at roughly 60fps, which is what almost every test wants. */
-const frame = (): void => advance(performance.now() + 16);
+const frame = (): void => advance(performance.now() + elapsed);
 
 describe('createField', () => {
   beforeEach(() => {
@@ -175,53 +221,58 @@ describe('createField', () => {
   it('decodes and instantiates the inlined module', async () => {
     await setup();
 
-    const [bytes] = (WebAssembly.instantiate as unknown as Mock).mock.calls[0];
-
-    expect(WebAssembly.instantiate).toHaveBeenCalledTimes(1);
-    expect(bytes).toBeInstanceOf(Uint8Array);
-    expect((bytes as Uint8Array).length).toBeGreaterThan(0);
+    expect(WebAssembly.instantiate).toHaveBeenNthCalledWith(
+      1,
+      Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0)),
+      {},
+    );
   });
 
   it('hands the simulation the parity constants', async () => {
     const { wasm } = await setup();
 
-    expect(wasm.configure).toHaveBeenNthCalledWith(
-      1,
-      defaults.count,
-      defaults.speed,
-      defaults.size,
-      defaults.bubbleSize,
-      defaults.opacity,
-      defaults.bubbleDistance,
-    );
+    expect(wasm.configure).toHaveBeenNthCalledWith(1, ...configuredWith());
   });
 
   it('hands the simulation the opacity it was given', async () => {
-    const { wasm } = await setup({ opacity: 0.55 });
+    const opacity = 0.55;
+    const { wasm } = await setup({ opacity });
 
-    expect((wasm.configure as Mock).mock.calls[0][4]).toBe(0.55);
+    expect(wasm.configure).toHaveBeenNthCalledWith(
+      1,
+      ...configuredWith({ opacity }),
+    );
   });
 
   it('sizes the simulation in CSS pixels', async () => {
     const { wasm } = await setup({ ratio: 2 });
 
-    expect(wasm.resize).toHaveBeenNthCalledWith(1, 1280, 800);
+    expect(wasm.resize).toHaveBeenNthCalledWith(1, width, height);
   });
 
   /* detectRetina: the backing store is scaled up and the context scaled back
      down, so a 2x display draws sharp rather than upscaling a blurry buffer. */
   it('scales the backing store by the device pixel ratio', async () => {
-    const { canvas, context } = await setup({ ratio: 2 });
+    const ratio = 2;
+    const { canvas, context } = await setup({ ratio });
 
-    expect(canvas.width).toBe(2560);
-    expect(canvas.height).toBe(1600);
-    expect(context.setTransform).toHaveBeenNthCalledWith(1, 2, 0, 0, 2, 0, 0);
+    expect(canvas.width).toBe(width * ratio);
+    expect(canvas.height).toBe(height * ratio);
+    expect(context.setTransform).toHaveBeenNthCalledWith(
+      1,
+      ratio,
+      0,
+      0,
+      ratio,
+      0,
+      0,
+    );
   });
 
   it('falls back to a ratio of 1 where there is none', async () => {
     const { canvas } = await setup({ ratio: 0 });
 
-    expect(canvas.width).toBe(1280);
+    expect(canvas.width).toBe(width);
   });
 
   it('starts the loop', async () => {
@@ -231,32 +282,37 @@ describe('createField', () => {
   });
 
   describe('each frame', () => {
+    /* Nothing has touched the pointer, so it is still parked. */
     it('advances the simulation by the elapsed time', async () => {
+      const startedAt = 1000;
+
+      vi.spyOn(performance, 'now').mockReturnValue(startedAt);
+
       const { wasm } = await setup();
 
-      vi.spyOn(performance, 'now').mockReturnValue(1000);
-      advance(1016);
+      advance(startedAt + elapsed);
 
-      expect(wasm.tick).toHaveBeenCalledTimes(1);
-      expect((wasm.tick as Mock).mock.calls[0][0]).toBeLessThanOrEqual(50);
+      expect(wasm.tick).toHaveBeenNthCalledWith(1, elapsed, parked, parked);
     });
 
     /* A backgrounded tab returns a delta of minutes. Advancing by it would
        teleport the whole field on the frame the tab is restored. */
     it('clamps a frame that took too long', async () => {
+      const maxFrameMs = 50;
       const { wasm } = await setup();
 
       advance(performance.now() + 60_000);
 
-      expect((wasm.tick as Mock).mock.calls[0][0]).toBe(50);
+      expect(wasm.tick).toHaveBeenNthCalledWith(1, maxFrameMs, parked, parked);
     });
 
     it('draws one arc per particle', async () => {
-      const { context } = await setup({ wasm: createWasm({ count: 3 }) });
+      const count = 3;
+      const { context } = await setup({ wasm: createWasm({ count }) });
 
       frame();
 
-      expect(context.arc).toHaveBeenCalledTimes(3);
+      expect(context.arc).toHaveBeenCalledTimes(count);
     });
 
     it('clears the canvas before drawing', async () => {
@@ -264,7 +320,7 @@ describe('createField', () => {
 
       frame();
 
-      expect(context.clearRect).toHaveBeenNthCalledWith(1, 0, 0, 1280, 800);
+      expect(context.clearRect).toHaveBeenNthCalledWith(1, 0, 0, width, height);
     });
 
     /* Canvas cannot read `var(--brand-blue)`, so the value is set on the
@@ -291,11 +347,11 @@ describe('createField', () => {
         color: '',
       } as unknown as CSSStyleDeclaration);
 
-      const { context } = await setup({ color: '#245385' });
+      const { context } = await setup();
 
       frame();
 
-      expect(context.fillStyle).toBe('#245385');
+      expect(context.fillStyle).toBe(color);
     });
 
     /* The point of the split: the radius arrives interpolated, so this loop
@@ -305,17 +361,18 @@ describe('createField', () => {
        3.1 reads back as 3.0999999046325684 — exactly representable values keep
        the assertion about the behaviour rather than about float precision. */
     it('draws each particle where and how the simulation says', async () => {
+      const radius = 3.5;
       const { context } = await setup({
-        wasm: createWasm({ count: 1, radii: [3.5] }),
+        wasm: createWasm({ count: 1, radii: [radius] }),
       });
 
       frame();
 
       expect(context.arc).toHaveBeenNthCalledWith(
         1,
-        10,
-        20,
-        3.5,
+        spawn.x,
+        spawn.y,
+        radius,
         0,
         Math.PI * 2,
       );
@@ -336,18 +393,19 @@ describe('createField', () => {
      on this context is not silently transparent. */
   describe('alpha', () => {
     it('draws each particle at the alpha the simulation wrote', async () => {
-      const alphas: number[] = [];
+      const alphas = [0.5, 0.75];
+      const drawn: number[] = [];
       const { context } = await setup({
-        wasm: createWasm({ count: 2, alphas: [0.5, 0.75] }),
+        wasm: createWasm({ count: alphas.length, alphas }),
       });
 
       (context.fill as Mock).mockImplementation(() => {
-        alphas.push(context.globalAlpha);
+        drawn.push(context.globalAlpha);
       });
 
       frame();
 
-      expect(alphas).toEqual([0.5, 0.75]);
+      expect(drawn).toEqual(alphas);
     });
 
     it('restores full alpha when the frame is done', async () => {
@@ -374,12 +432,13 @@ describe('createField', () => {
     /* Drawn once and left alone: the guidance is to remove the motion, not the
        content. An empty canvas is a missing feature. */
     it('still draws the field, once', async () => {
+      const count = 3;
       const { context } = await setup({
         prefersReducedMotion: true,
-        wasm: createWasm({ count: 3 }),
+        wasm: createWasm({ count }),
       });
 
-      expect(context.arc).toHaveBeenCalledTimes(3);
+      expect(context.arc).toHaveBeenCalledTimes(count);
     });
 
     it('starts the loop if the preference is turned off', async () => {
@@ -451,12 +510,15 @@ describe('createField', () => {
     it('follows it', async () => {
       const { wasm } = await setup();
 
-      window.dispatchEvent(
-        new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
-      );
+      pointer('pointermove');
       frame();
 
-      expect((wasm.tick as Mock).mock.calls[0].slice(1)).toEqual([400, 300]);
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        point.clientX,
+        point.clientY,
+      );
     });
 
     /* The simulation works in the canvas's own space, so a pointer position
@@ -467,17 +529,17 @@ describe('createField', () => {
     it('converts the position into the canvas own space', async () => {
       const { wasm, canvas } = await setup();
 
-      vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
-        left: 120,
-        top: 80,
-      } as DOMRect);
+      vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue(inset);
 
-      window.dispatchEvent(
-        new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
-      );
+      pointer('pointermove');
       frame();
 
-      expect((wasm.tick as Mock).mock.calls[0].slice(1)).toEqual([280, 220]);
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        point.clientX - inset.left,
+        point.clientY - inset.top,
+      );
     });
 
     /* Parked far enough away that nothing is ever within the bubble radius,
@@ -485,16 +547,81 @@ describe('createField', () => {
     it('forgets it when it leaves the window', async () => {
       const { wasm } = await setup();
 
-      window.dispatchEvent(
-        new PointerEvent('pointermove', { clientX: 400, clientY: 300 }),
-      );
+      pointer('pointermove');
       window.dispatchEvent(new PointerEvent('pointerleave'));
       frame();
 
-      const [, x, y] = (wasm.tick as Mock).mock.calls[0];
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        parked,
+        parked,
+      );
+    });
+  });
 
-      expect(x).toBeLessThan(-1000);
-      expect(y).toBeLessThan(-1000);
+  /* A finger fires no pointermove for a tap, and stops firing it once a drag
+     turns into a scroll, so the field reads the press and touchmove too. */
+  describe('touch', () => {
+    it('follows a tap', async () => {
+      const { wasm } = await setup();
+
+      pointer('pointerdown', { pointerType: 'touch' });
+      frame();
+
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        point.clientX,
+        point.clientY,
+      );
+    });
+
+    it('keeps it once the finger lifts', async () => {
+      const { wasm } = await setup();
+
+      pointer('pointerdown', { pointerType: 'touch' });
+      window.dispatchEvent(
+        new PointerEvent('pointerup', { pointerType: 'touch' }),
+      );
+      frame();
+
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        point.clientX,
+        point.clientY,
+      );
+    });
+
+    it('follows a finger while the page scrolls', async () => {
+      const { wasm, canvas } = await setup();
+
+      vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue(inset);
+
+      touchMove();
+      frame();
+
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        point.clientX - inset.left,
+        point.clientY - inset.top,
+      );
+    });
+
+    it('ignores a touchmove with no touches', async () => {
+      const { wasm } = await setup();
+
+      touchMove([]);
+      frame();
+
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        parked,
+        parked,
+      );
     });
   });
 
@@ -520,14 +647,15 @@ describe('createField', () => {
     /* With no loop, nothing else would repaint it, and the field would sit
        blank until the next update. */
     it('redraws straight away when the loop is not running', async () => {
+      const count = 2;
       const { context } = await setup({
         prefersReducedMotion: true,
-        wasm: createWasm({ count: 2 }),
+        wasm: createWasm({ count }),
       });
 
       window.dispatchEvent(new Event('resize'));
 
-      expect(context.arc).toHaveBeenCalledTimes(4);
+      expect(context.arc).toHaveBeenCalledTimes(count * 2);
     });
   });
 
@@ -572,14 +700,15 @@ describe('createField', () => {
     });
 
     it('still applies updates while paused', async () => {
+      const count = 2;
       const { field, context } = await setup({
-        wasm: createWasm({ count: 2 }),
+        wasm: createWasm({ count }),
       });
 
       field.pause();
       field.update({ size: 3 });
 
-      expect(context.arc).toHaveBeenCalledTimes(2);
+      expect(context.arc).toHaveBeenCalledTimes(count);
     });
   });
 
@@ -598,14 +727,16 @@ describe('createField', () => {
     it('does not hand the first frame the time spent paused', async () => {
       const { field, wasm } = await setup();
 
+      const resumedAt = 60_000;
+
       vi.spyOn(performance, 'now').mockReturnValue(10_000);
       field.pause();
 
-      (performance.now as Mock).mockReturnValue(60_000);
+      (performance.now as Mock).mockReturnValue(resumedAt);
       field.resume();
-      advance(60_016);
+      advance(resumedAt + elapsed);
 
-      expect((wasm.tick as Mock).mock.calls[0][0]).toBe(16);
+      expect(wasm.tick).toHaveBeenNthCalledWith(1, elapsed, parked, parked);
     });
 
     it('does not start a second loop when not paused', async () => {
@@ -646,32 +777,34 @@ describe('createField', () => {
 
       field.update({ speed: 1.5 });
 
-      expect((wasm.configure as Mock).mock.calls[1][1]).toBe(1.5);
+      expect(wasm.configure).toHaveBeenCalledTimes(2);
       expect(cancelAnimationFrame).toHaveBeenCalledTimes(0);
     });
 
     it('keeps settings it was not asked to change', async () => {
+      const speed = 1.5;
       const { field, wasm } = await setup();
 
-      field.update({ speed: 1.5 });
+      field.update({ speed });
 
-      const [count, , size] = (wasm.configure as Mock).mock.calls[1];
-
-      expect(count).toBe(defaults.count);
-      expect(size).toBe(defaults.size);
+      expect(wasm.configure).toHaveBeenNthCalledWith(
+        2,
+        ...configuredWith({ speed }),
+      );
     });
 
     /* A caller spreading optional props — `{ opacity }` where opacity is
        undefined — means "leave it alone", not "clear it". */
     it('ignores values given as undefined', async () => {
+      const speed = 1.5;
       const { field, wasm } = await setup();
 
-      field.update({ opacity: undefined, speed: 1.5 });
+      field.update({ opacity: undefined, speed });
 
-      const [, speed, , , opacity] = (wasm.configure as Mock).mock.calls[1];
-
-      expect(speed).toBe(1.5);
-      expect(opacity).toBe(defaults.opacity);
+      expect(wasm.configure).toHaveBeenNthCalledWith(
+        2,
+        ...configuredWith({ speed }),
+      );
     });
 
     /* Count decides how many particles exist, so it is the one setting that
@@ -704,16 +837,17 @@ describe('createField', () => {
     /* Otherwise a change made while the field is halted would not appear
        until something else forced a frame. */
     it('redraws immediately when the loop is not running', async () => {
+      const count = 2;
       const { field, context } = await setup({
         prefersReducedMotion: true,
-        wasm: createWasm({ count: 2 }),
+        wasm: createWasm({ count }),
       });
 
-      expect(context.arc).toHaveBeenCalledTimes(2);
+      expect(context.arc).toHaveBeenCalledTimes(count);
 
       field.update({ size: 3 });
 
-      expect(context.arc).toHaveBeenCalledTimes(4);
+      expect(context.arc).toHaveBeenCalledTimes(count * 2);
     });
 
     it('leaves the running loop to draw its own next frame', async () => {
@@ -770,6 +904,23 @@ describe('createField', () => {
       window.dispatchEvent(new Event('resize'));
 
       expect(wasm.resize).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops following the pointer and touch', async () => {
+      const { field, wasm } = await setup();
+
+      field.destroy();
+      pointer('pointermove');
+      pointer('pointerdown');
+      touchMove();
+      frame();
+
+      expect(wasm.tick).toHaveBeenNthCalledWith(
+        1,
+        expect.any(Number),
+        parked,
+        parked,
+      );
     });
   });
 

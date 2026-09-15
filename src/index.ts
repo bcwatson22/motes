@@ -252,12 +252,34 @@ const createField = async (
 
      The rect is read per event rather than cached because scrolling moves it,
      and pointermove is coalesced to about one event per frame anyway. */
-  const onPointerMove = (event: PointerEvent): void => {
+  const follow = (clientX: number, clientY: number): void => {
     const bounds = canvas.getBoundingClientRect();
 
-    pointerX = event.clientX - bounds.left;
-    pointerY = event.clientY - bounds.top;
+    pointerX = clientX - bounds.left;
+    pointerY = clientY - bounds.top;
   };
+
+  const onPointerMove = (event: PointerEvent): void =>
+    follow(event.clientX, event.clientY);
+
+  /* A mouse fires pointermove just by being over the page; a finger does not.
+     A tap with no drag fires no pointermove at all, so the press itself has to
+     move the bubble. It stays where the tap landed once the finger lifts, the
+     way a mouse left resting would. A mouse press lands where the mouse
+     already is, so there is no need to tell the two apart. */
+  const onPointerDown = (event: PointerEvent): void =>
+    follow(event.clientX, event.clientY);
+
+  /* Pointer events stop the moment a touch becomes a scroll — the browser
+     fires pointercancel and takes the gesture over — but touchmove keeps
+     coming. Passive, so following the finger never holds up the scroll. */
+  const onTouchMove = (event: TouchEvent): void => {
+    const [touch] = event.touches;
+
+    if (touch) follow(touch.clientX, touch.clientY);
+  };
+
+  const passive: AddEventListenerOptions = { passive: true };
 
   const onPointerLeave = (): void => {
     pointerX = noPointer;
@@ -328,6 +350,8 @@ const createField = async (
 
   window.addEventListener('resize', onResize);
   window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('touchmove', onTouchMove, passive);
   window.addEventListener('pointerleave', onPointerLeave);
   /* Subscribed rather than read once: someone changing the setting with the
      page open should see the field stop, without reloading. */
@@ -373,6 +397,8 @@ const createField = async (
       stop();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('touchmove', onTouchMove, passive);
       window.removeEventListener('pointerleave', onPointerLeave);
       motion.removeEventListener('change', applyMotionPreference);
     },
