@@ -7,6 +7,10 @@ updates:
   # that needs work cannot hold back the month's safe bumps.
   - package-ecosystem: npm
     directory: /
+    # This is a published library, and Dependabot's default for a library is
+    # to widen a range. Everything here is pinned exactly on purpose, so bumps
+    # have to stay exact.
+    versioning-strategy: increase
     schedule:
       interval: monthly
       time: '08:00'
