@@ -455,6 +455,26 @@ pnpm wasm
 
 That rebuilds `src/wasm.ts` — commit the result. It is generated and committed so nobody installing this package needs Rust, and CI fails if it has drifted from the crate.
 
+## Maintenance
+
+Dependabot opens one pull request a month per ecosystem — npm, the Rust crate,
+and the GitHub Actions — with patch and minor grouped and majors in a PR of
+their own, so one that needs work cannot hold back the month's safe bumps. CI
+proves each one, and nothing merges without review.
+
+Every npm dependency is a dev dependency, so a bad bump can break this
+repository's build but cannot reach anyone installing the package. Versions are
+pinned exactly, `.npmrc` sets `save-exact` so `pnpm add` keeps it that way, and
+Dependabot is told to raise pins rather than widen them — its default for a
+library is to widen.
+
+One thing to know when a Rust PR fails: Cargo treats `0.x` → `0.(x+1)` as
+breaking, where Dependabot's grouping calls it minor, so a `wasm-bindgen` 0.3
+would arrive in the safe group and fail for a real reason.
+
+Security updates are a separate setting, and open a PR for a vulnerable
+version whatever the monthly rules say.
+
 ## Licence
 
 MIT

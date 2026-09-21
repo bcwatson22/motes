@@ -9,28 +9,28 @@ importers:
   .:
     devDependencies:
       '@types/node':
-        specifier: ^26.2.0
+        specifier: 26.2.0
         version: 26.2.0
       '@vitest/coverage-istanbul':
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(vitest@4.1.11)
       jsdom:
-        specifier: ^30.0.1
+        specifier: 30.0.1
         version: 30.0.1
       oxfmt:
-        specifier: ^0.64.0
+        specifier: 0.64.0
         version: 0.64.0
       oxlint:
-        specifier: ^1.79.0
+        specifier: 1.79.0
         version: 1.79.0
       tsup:
-        specifier: ^8.5.1
+        specifier: 8.5.1
         version: 8.5.1(postcss@8.5.26)(typescript@7.0.2)
       typescript:
-        specifier: ^7.0.2
+        specifier: 7.0.2
         version: 7.0.2
       vitest:
-        specifier: ^4.1.11
+        specifier: 4.1.11
         version: 4.1.11(@types/node@26.2.0)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.27.7))
 
 packages:
