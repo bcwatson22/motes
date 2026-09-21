@@ -1,0 +1,55 @@
+version: 2
+
+updates:
+  # Every npm dependency here is a dev dependency, so a bad bump cannot reach
+  # anyone installing the package — it can only break this repo's own build.
+  # Patch and minor are grouped into one PR; majors arrive as their own, so one
+  # that needs work cannot hold back the month's safe bumps.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+      time: '08:00'
+      timezone: Europe/London
+    groups:
+      npm:
+        update-types: [minor, patch]
+      npm-majors:
+        update-types: [major]
+    assignees: [bcwatson22]
+    commit-message:
+      prefix: chore
+
+  # Cargo reads 0.x → 0.(x+1) as breaking, where Dependabot's grouping reads it
+  # as minor by strict semver. wasm-bindgen is on 0.2.x, so a 0.3 would land in
+  # the safe group; CI would catch it, and this note is so the reader of that
+  # PR knows why a "minor" bump failed.
+  - package-ecosystem: cargo
+    directory: /crates/particles
+    schedule:
+      interval: monthly
+      time: '08:00'
+      timezone: Europe/London
+    groups:
+      cargo:
+        update-types: [minor, patch]
+      cargo-majors:
+        update-types: [major]
+    assignees: [bcwatson22]
+    commit-message:
+      prefix: chore
+
+  # CI here is on actions/*@v4 while the sibling repos are on @v7 — the kind of
+  # drift nobody sees until a runner stops supporting it.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      time: '08:00'
+      timezone: Europe/London
+    groups:
+      actions:
+        patterns: ['*']
+    assignees: [bcwatson22]
+    commit-message:
+      prefix: ci
