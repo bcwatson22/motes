@@ -46,7 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+      # No channel named here: rust-toolchain.toml pins it, and rustup
+      # provisions that toolchain with the components the file declares.
+      # Printed so that a drift between the two jobs is visible in the log.
+      - run: rustc --version
 
       - run: cargo test
 
@@ -55,14 +58,20 @@ jobs:
       - run: cargo fmt --check
 
   # Guards the thing a committed artifact makes possible to forget: that
-  # src/wasm.ts still matches the crate it claims to be built from.
+  # src/wasm.ts still matches the crate it claims to be built from. Only
+  # meaningful against the pinned toolchain — rustc's codegen moves between
+  # releases, so an unpinned build fails this on a commit that touched no Rust.
   artifact:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v7
 
-      - run: rustup target add wasm32-unknown-unknown
+      # As above, and the wasm target comes from the toolchain file too. This
+      # job in particular must not install its own `stable`: it builds the
+      # artifact the next step compares against a committed one, and the
+      # comparison only means anything if the compiler is the pinned one.
+      - run: rustc --version
 
       - run: ./crates/particles/build.sh
 

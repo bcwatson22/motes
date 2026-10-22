@@ -1,0 +1,12 @@
+# Pins the compiler, because src/wasm.ts is a committed build artifact and CI
+# asserts a fresh build still matches it byte for byte. That check can only
+# hold against a fixed toolchain: rustc's codegen changes between releases, so
+# an unpinned `stable` turns every Rust release into a red build on a commit
+# that touched no Rust at all.
+#
+# Bumping this is a deliberate act. Change the channel, run `pnpm wasm`, and
+# commit the regenerated src/wasm.ts in the same change.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]
