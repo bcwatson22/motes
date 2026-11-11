@@ -10,8 +10,10 @@ jobs:
 
     permissions:
       contents: read
-      # Required for provenance: npm signs an attestation tying the published
-      # tarball to this workflow and commit, and shows it on the package page.
+      # Required for trusted publishing: npm exchanges this workflow's OIDC
+      # token for a short-lived publish credential, so there's no NPM_TOKEN to
+      # rotate. It also signs the provenance attestation tying the published
+      # tarball to this workflow and commit, shown on the package page.
       id-token: write
 
     steps:
@@ -30,6 +32,7 @@ jobs:
       # Published only if it would pass on main.
       - run: pnpm verify
 
+      # Authenticates through the trusted publisher configured on npmjs.com
+      # for this repo and workflow file (needs npm >= 11.5.1, bundled with
+      # Node 24). Renaming this file means updating that config too.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
