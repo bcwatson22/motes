@@ -32,7 +32,10 @@ jobs:
       # Published only if it would pass on main.
       - run: pnpm verify
 
-      # Authenticates through the trusted publisher configured on npmjs.com
-      # for this repo and workflow file (needs npm >= 11.5.1, bundled with
-      # Node 24). Renaming this file means updating that config too.
-      - run: npm publish --provenance --access public
+      # Stages the version rather than publishing it: it goes live only once a
+      # maintainer approves it with 2FA, on npmjs.com or with
+      # `npm stage approve`. Authenticates through the trusted publisher
+      # configured on npmjs.com for this repo and workflow file, which is
+      # allowed to stage but not to publish directly (needs npm >= 11.15.0,
+      # bundled with Node 24). Renaming this file means updating that config.
+      - run: npm stage publish --provenance --access public
